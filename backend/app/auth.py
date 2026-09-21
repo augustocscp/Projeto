@@ -1,27 +1,32 @@
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from secrets import token_urlsafe
 from typing import Any
+import urllib.parse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 import msal
-import urllib.parse
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.config import (
+    AUTHORITY,
     CLIENT_ID,
     CLIENT_SECRET,
-    AUTHORITY,
     REDIRECT_URI,
     SCOPES,
     TENANT_ID,
 )
+from app.database import get_db
+from app.models.sessao import Sessao
+from app.models.usuario import Usuario
 
 router = APIRouter()
 
 FRONTEND_URL = "http://localhost:5000"
 SESSION_COOKIE = "patrimonio_session"
 SESSION_MAX_AGE = 60 * 60 * 8
-
-_sessions: dict[str, dict[str, Any]] = {}
 
 
 def _build_msal_app():
@@ -32,16 +37,81 @@ def _build_msal_app():
     )
 
 
-def _create_session(user: dict[str, Any]) -> str:
-    session_id = token_urlsafe(32)
-    _sessions[session_id] = user
-    return session_id
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-def _remove_session(request: Request) -> None:
-    session_id = request.cookies.get(SESSION_COOKIE)
-    if session_id:
-        _sessions.pop(session_id, None)
+def _hash_token(token: str) -> str:
+    return sha256(token.encode("utf-8")).hexdigest()
+
+
+def _serialize_user(usuario: Usuario) -> dict[str, Any]:
+    return {
+        "id": usuario.id,
+        "azure_oid": usuario.azure_oid,
+        "nome": usuario.nome,
+        "email": usuario.email,
+        "cargo": usuario.cargo,
+        "filial": usuario.filial,
+        "perfil": usuario.perfil,
+    }
+
+
+def _upsert_user(db: Session, claims: dict[str, Any]) -> Usuario:
+    azure_oid = claims.get("oid", "")
+    email = claims.get("preferred_username", "")
+    nome = claims.get("name", email)
+
+    usuario = db.scalar(select(Usuario).where(Usuario.azure_oid == azure_oid))
+
+    if usuario is None:
+        usuario = Usuario(
+            azure_oid=azure_oid,
+            nome=nome,
+            email=email,
+            cargo="Administrador",
+            filial="Matriz",
+            perfil="administrador",
+            ativo=True,
+        )
+        db.add(usuario)
+    else:
+        usuario.nome = nome
+        usuario.email = email
+        usuario.ativo = True
+        usuario.atualizado_em = _now()
+
+    db.commit()
+    db.refresh(usuario)
+    return usuario
+
+
+def _create_session(db: Session, usuario: Usuario) -> str:
+    token = token_urlsafe(32)
+    agora = _now()
+
+    sessao = Sessao(
+        token_hash=_hash_token(token),
+        usuario_id=usuario.id,
+        criado_em=agora,
+        expira_em=agora + timedelta(seconds=SESSION_MAX_AGE),
+        ultimo_acesso_em=agora,
+    )
+
+    db.add(sessao)
+    db.commit()
+    return token
+
+
+def _remove_session(request: Request, db: Session) -> None:
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return
+
+    sessao = db.scalar(select(Sessao).where(Sessao.token_hash == _hash_token(token)))
+    if sessao and sessao.revogado_em is None:
+        sessao.revogado_em = _now()
+        db.commit()
 
 
 def _delete_session_cookie(response: Response) -> None:
@@ -53,22 +123,37 @@ def _delete_session_cookie(response: Response) -> None:
     )
 
 
-def get_current_user(request: Request) -> dict[str, Any]:
-    session_id = request.cookies.get(SESSION_COOKIE)
-    if not session_id:
+def get_current_user(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Sessão ausente",
+            detail="Sessao ausente",
         )
 
-    user = _sessions.get(session_id)
-    if not user:
+    sessao = db.scalar(select(Sessao).where(Sessao.token_hash == _hash_token(token)))
+    agora = _now()
+
+    if not sessao or sessao.revogado_em is not None or sessao.expira_em <= agora:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Sessão inválida ou expirada",
+            detail="Sessao invalida ou expirada",
         )
 
-    return user
+    usuario = sessao.usuario
+    if not usuario or not usuario.ativo:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuario inativo ou nao encontrado",
+        )
+
+    sessao.ultimo_acesso_em = agora
+    db.commit()
+
+    return _serialize_user(usuario)
 
 
 @router.get("/auth/login")
@@ -82,7 +167,12 @@ def login():
 
 
 @router.get("/auth/callback")
-def callback(request: Request, code: str | None = None, error: str | None = None):
+def callback(
+    request: Request,
+    code: str | None = None,
+    error: str | None = None,
+    db: Session = Depends(get_db),
+):
     if error:
         return RedirectResponse(f"{FRONTEND_URL}/?erro={urllib.parse.quote(error)}")
 
@@ -97,24 +187,17 @@ def callback(request: Request, code: str | None = None, error: str | None = None
     )
 
     if "error" in result:
-        mensagem = result.get("error_description", "Falha na autenticação")
+        mensagem = result.get("error_description", "Falha na autenticacao")
         return RedirectResponse(f"{FRONTEND_URL}/?erro={urllib.parse.quote(mensagem)}")
 
-    usuario = result.get("id_token_claims", {})
-    session_id = _create_session(
-        {
-            "id": usuario.get("oid", ""),
-            "nome": usuario.get("name", ""),
-            "email": usuario.get("preferred_username", ""),
-            "cargo": "Administrador",
-            "filial": "Matriz",
-        }
-    )
+    claims = result.get("id_token_claims", {})
+    usuario = _upsert_user(db, claims)
+    token = _create_session(db, usuario)
 
     response = RedirectResponse(FRONTEND_URL)
     response.set_cookie(
         key=SESSION_COOKIE,
-        value=session_id,
+        value=token,
         max_age=SESSION_MAX_AGE,
         httponly=True,
         secure=False,
@@ -129,15 +212,19 @@ def me(user: dict[str, Any] = Depends(get_current_user)):
 
 
 @router.post("/auth/logout")
-def logout(request: Request, response: Response):
-    _remove_session(request)
+def logout(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    _remove_session(request, db)
     _delete_session_cookie(response)
     return {"status": "ok"}
 
 
 @router.get("/auth/logout")
-def logout_browser(request: Request):
-    _remove_session(request)
+def logout_browser(request: Request, db: Session = Depends(get_db)):
+    _remove_session(request, db)
 
     post_logout_redirect = urllib.parse.quote(FRONTEND_URL, safe="")
     microsoft_logout_url = (

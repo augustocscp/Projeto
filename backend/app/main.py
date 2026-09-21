@@ -2,6 +2,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth import get_current_user, router as auth_router
+from app.database import create_database_objects
 
 app = FastAPI(title="Sistema Patrimonial API")
 
@@ -17,6 +18,11 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+
+
+@app.on_event("startup")
+def startup() -> None:
+    create_database_objects()
 
 
 @app.get("/health")
