@@ -1,0 +1,19 @@
+.env
+.venv/
+.idea/
+__pycache__/
+*.py[cod]
+*.iml
+
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+coverage/
+
+# OS/editor
+.DS_Store
+*.log
+*.swp
