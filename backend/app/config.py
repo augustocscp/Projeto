@@ -28,6 +28,9 @@ TENANT_ID = "dc1693df-d65a-491e-bced-e17803feaf5e"
 CLIENT_SECRET = os.environ.get("AZURE_CLIENT_SECRET", "")
 DATABASE_URL = _normalize_database_url(os.environ.get("DATABASE_URL", ""))
 DATABASE_SCHEMA = os.environ.get("DATABASE_SCHEMA", "gadm")
+AUTO_CREATE_DATABASE_OBJECTS = (
+    os.environ.get("AUTO_CREATE_DATABASE_OBJECTS", "false").lower() == "true"
+)
 
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 REDIRECT_URI = "http://localhost:8000/auth/callback"

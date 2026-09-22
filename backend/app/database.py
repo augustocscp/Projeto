@@ -27,8 +27,7 @@ def get_db() -> Generator[Session]:
 
 
 def create_database_objects() -> None:
-    import app.models.sessao  # noqa: F401
-    import app.models.usuario  # noqa: F401
+    import app.models  # noqa: F401
 
     with engine.begin() as connection:
         connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{DATABASE_SCHEMA}"'))
