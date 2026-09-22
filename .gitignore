@@ -17,3 +17,6 @@ coverage/
 .DS_Store
 *.log
 *.swp
+
+# Relatorios locais
+RELATORIO_ALTERACOES_BANCO_E_LOCALIZACOES.md
