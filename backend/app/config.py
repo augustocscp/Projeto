@@ -32,6 +32,24 @@ AUTO_CREATE_DATABASE_OBJECTS = (
     os.environ.get("AUTO_CREATE_DATABASE_OBJECTS", "false").lower() == "true"
 )
 
+GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "")
+GCP_BIGQUERY_DATASET = os.environ.get("GCP_BIGQUERY_DATASET", "")
+GCP_CREDENTIALS_PATH = os.environ.get("GCP_CREDENTIALS_PATH", "")
+GCP_BIGQUERY_ENABLED = (
+    os.environ.get("GCP_BIGQUERY_ENABLED", "false").lower() == "true"
+)
+BIGQUERY_TABLE_SN1 = os.environ.get("BIGQUERY_TABLE_SN1", "")
+BIGQUERY_TABLE_SN3 = os.environ.get("BIGQUERY_TABLE_SN3", "")
+BIGQUERY_TABLE_SNG = os.environ.get("BIGQUERY_TABLE_SNG", "")
+# Os campos de filtro dependem do schema oficial ainda pendente. Mantê-los em
+# configuração evita incorporar suposições sobre SN1, SN3 e SNG ao código.
+BIGQUERY_FILTER_FIELD_SN1 = os.environ.get("BIGQUERY_FILTER_FIELD_SN1", "")
+BIGQUERY_FILTER_FIELD_SN3 = os.environ.get("BIGQUERY_FILTER_FIELD_SN3", "")
+BIGQUERY_FILTER_FIELD_SNG = os.environ.get("BIGQUERY_FILTER_FIELD_SNG", "")
+BIGQUERY_QUERY_TIMEOUT_SECONDS = int(
+    os.environ.get("BIGQUERY_QUERY_TIMEOUT_SECONDS", "15")
+)
+
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 REDIRECT_URI = "http://localhost:8000/auth/callback"
 SCOPES = ["User.Read"]

@@ -3,7 +3,13 @@
 .idea/
 __pycache__/
 *.py[cod]
+.pytest_cache/
+pytest-cache-files-*/
 *.iml
+
+# Credenciais locais do GCP
+backend/gcp-credentials*.json
+backend/credentials/*.json
 
 # Flutter/Dart
 .dart_tool/

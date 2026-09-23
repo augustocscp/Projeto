@@ -4,7 +4,7 @@ from secrets import token_urlsafe
 from typing import Any
 import urllib.parse
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import RedirectResponse
 import msal
 from sqlalchemy import select
@@ -19,6 +19,7 @@ from app.config import (
     TENANT_ID,
 )
 from app.database import get_db
+from app.errors import api_error
 from app.models.sessao import Sessao
 from app.models.usuario import Usuario
 
@@ -129,25 +130,28 @@ def get_current_user(
 ) -> dict[str, Any]:
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Sessao ausente",
+        raise api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            "SESSAO_AUSENTE",
+            "Sessão ausente.",
         )
 
     sessao = db.scalar(select(Sessao).where(Sessao.token_hash == _hash_token(token)))
     agora = _now()
 
     if not sessao or sessao.revogado_em is not None or sessao.expira_em <= agora:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Sessao invalida ou expirada",
+        raise api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            "SESSAO_INVALIDA",
+            "Sessão inválida ou expirada.",
         )
 
     usuario = sessao.usuario
     if not usuario or not usuario.ativo:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario inativo ou nao encontrado",
+        raise api_error(
+            status.HTTP_401_UNAUTHORIZED,
+            "USUARIO_INATIVO",
+            "Usuário inativo ou não encontrado.",
         )
 
     sessao.ultimo_acesso_em = agora
