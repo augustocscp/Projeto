@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'patrimonio_screen.dart';
+
 const _menuBackground = Color(0xFFECF1F5);
 const _menuTextColor = Color(0xFF009CDF);
 
@@ -54,11 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   usuario: widget.usuario,
                   onLogoutPressed: widget.onLogoutPressed,
                 ),
-                Expanded(
-                  child: _ModuleContent(
-                    modulo: _moduloSelecionado,
-                  ),
-                ),
+                Expanded(child: _ModuleContent(modulo: _moduloSelecionado)),
               ],
             ),
           ),
@@ -115,7 +113,7 @@ class _TopHeader extends StatelessWidget {
                 Text(
                   email,
                   style: TextStyle(
-                    color: _menuTextColor.withOpacity(0.72),
+                    color: _menuTextColor.withValues(alpha: 0.72),
                     fontSize: 12,
                   ),
                 ),
@@ -248,7 +246,7 @@ class _MenuItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       selected: selected,
-      selectedTileColor: _menuTextColor.withOpacity(0.1),
+      selectedTileColor: _menuTextColor.withValues(alpha: 0.1),
       leading: Icon(icon, color: _menuTextColor),
       title: Text(
         label,
@@ -265,34 +263,28 @@ class _MenuItem extends StatelessWidget {
 class _ModuleContent extends StatelessWidget {
   final _ModuloSistema modulo;
 
-  const _ModuleContent({
-    required this.modulo,
-  });
+  const _ModuleContent({required this.modulo});
 
   @override
   Widget build(BuildContext context) {
     return switch (modulo) {
       _ModuloSistema.inicio => const _InicioModule(),
-      _ModuloSistema.cadastroGeral => const _PlaceholderModule(
-          icon: Icons.folder_outlined,
-          titulo: 'Cadastro geral',
-          descricao: 'Estrutura inicial para cadastro, consulta e manutenção dos bens patrimoniais.',
-        ),
+      _ModuloSistema.cadastroGeral => const PatrimonioScreen(),
       _ModuloSistema.cadastroVeicular => const _PlaceholderModule(
-          icon: Icons.directions_car_outlined,
-          titulo: 'Cadastro veicular',
-          descricao: 'Base preparada para registrar frota, documentos, vínculo patrimonial e status operacional.',
-        ),
+        icon: Icons.directions_car_outlined,
+        titulo: 'Cadastro veicular',
+        descricao: 'Base preparada para registrar frota, documentos, vínculo patrimonial e status operacional.',
+      ),
       _ModuloSistema.auditoria => const _PlaceholderModule(
-          icon: Icons.fact_check_outlined,
-          titulo: 'Auditoria',
-          descricao: 'Área reservada para conferências, divergências, inventários e aprovações.',
-        ),
+        icon: Icons.fact_check_outlined,
+        titulo: 'Auditoria',
+        descricao: 'Área reservada para conferências, divergências, inventários e aprovações.',
+      ),
       _ModuloSistema.logs => const _PlaceholderModule(
-          icon: Icons.receipt_long_outlined,
-          titulo: 'Log do sistema',
-          descricao: 'Histórico protegido para rastrear acessos, alterações e eventos importantes.',
-        ),
+        icon: Icons.receipt_long_outlined,
+        titulo: 'Log do sistema',
+        descricao: 'Histórico protegido para rastrear acessos, alterações e eventos importantes.',
+      ),
     };
   }
 }

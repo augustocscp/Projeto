@@ -18,7 +18,7 @@ class LoginScreen extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.08),
+                color: Colors.black.withValues(alpha: 0.08),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -27,8 +27,11 @@ class LoginScreen extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.inventory_2_outlined, size: 56, color:
-              Color(0xFF009CDF)),
+              const Icon(
+                Icons.inventory_2_outlined,
+                size: 56,
+                color: Color(0xFF009CDF),
+              ),
               const SizedBox(height: 16),
               const Text(
                 'Sistema Patrimonial',
