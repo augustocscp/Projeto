@@ -9,8 +9,10 @@ class ResponsavelCreate(BaseModel):
     codigo_re: str = Field(min_length=1, max_length=50)
     nome: str = Field(min_length=1, max_length=255)
     cargo: str | None = Field(default=None, max_length=255)
-    departamento_id: int
+    departamento_id: int | None = None
     gestor_responsavel_id: int | None = None
+    departamento_externo: str | None = Field(default=None, max_length=255)
+    gestor_responsavel: str | None = Field(default=None, max_length=255)
 
 
 class ResponsavelUpdate(BaseModel):
@@ -29,8 +31,11 @@ class ResponsavelResponse(BaseModel):
     codigo_re: str
     nome: str
     cargo: str | None
-    departamento_id: int
+    departamento_id: int | None
     gestor_responsavel_id: int | None
+    departamento_externo: str | None
+    gestor_responsavel: str | None
+    consultado_em: datetime | None
     origem_dados: str
     ativo: bool
     criado_em: datetime

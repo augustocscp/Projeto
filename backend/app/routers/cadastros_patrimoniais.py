@@ -4,6 +4,10 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.database import get_db
+from app.config import GCP_BIGQUERY_ENABLED
+from app.errors import api_error
+from app.integrations.bigquery_client import BigQueryIntegrationError
+from app.integrations.protheus_responsavel_service import ProtheusResponsavelService
 from app.models.categoria_patrimonial import CategoriaPatrimonial
 from app.models.departamento import Departamento
 from app.models.destinacao_patrimonial import DestinacaoPatrimonial
@@ -18,10 +22,33 @@ from app.schemas.responsavel import ResponsavelResponse
 from app.schemas.situacao_patrimonial import SituacaoPatrimonialResponse
 from app.services.localizacao_service import listar_localizacoes
 from app.services.responsavel_service import listar_responsaveis
+from app.services.historico_service import registrar_evento
 
 router = APIRouter(
     tags=["cadastros-patrimoniais"], dependencies=[Depends(get_current_user)]
 )
+
+
+@router.get("/api/responsaveis/protheus")
+def responsavel_protheus(codigo_re: str, db: Session = Depends(get_db)):
+    if not GCP_BIGQUERY_ENABLED:
+        return {"integracao_ativa": False, "encontrado": False, "dados": None}
+    try:
+        dados = ProtheusResponsavelService().consultar(codigo_re)
+    except BigQueryIntegrationError as exc:
+        registrar_evento(db, "FALHA_INTEGRACAO", "Falha na consulta exploratória de responsável.",
+                         contexto={"codigo_re": codigo_re});
+        db.commit()
+        raise api_error(503, "INTEGRACAO_INDISPONIVEL", "Integração com o Protheus indisponível.") from exc
+    if dados.get("multiplos_current"):
+        registrar_evento(db, "FALHA_INTEGRACAO", "Mais de um registro current encontrado para o RE.",
+                         contexto={"codigo_re": codigo_re});
+        db.commit()
+    if dados["status"] == "inativo":
+        raise api_error(409, "RESPONSAVEL_INATIVO", "O RE informado não está ativo no sistema.")
+    if dados["status"] == "nao_encontrado":
+        raise api_error(404, "RESPONSAVEL_NAO_ENCONTRADO", "Responsável não encontrado no Protheus.")
+    return {"integracao_ativa": True, "encontrado": True, "dados": dados}
 
 
 def _referencia(registro, codigo_attr: str = "codigo") -> dict:
@@ -87,16 +114,27 @@ def empresas(ativo: bool | None = True, db: Session = Depends(get_db)):
 
 @router.get("/api/filiais")
 def filiais(
-    empresa_id: int | None = None,
-    ativo: bool | None = True,
-    db: Session = Depends(get_db),
+        empresa_id: int | None = None,
+        ativo: bool | None = True,
+        db: Session = Depends(get_db),
 ):
     stmt = select(Filial).order_by(Filial.nome)
     if empresa_id is not None:
         stmt = stmt.where(Filial.empresa_id == empresa_id)
     if ativo is not None:
         stmt = stmt.where(Filial.ativo.is_(ativo))
-    return [_referencia(item) for item in db.scalars(stmt).all()]
+    return [
+        _referencia(item)
+        | {
+            "tipo_unidade": item.tipo_unidade,
+            "cidade": {
+                "id": item.cidade.id,
+                "nome": item.cidade.nome,
+                "uf": item.cidade.uf,
+            },
+        }
+        for item in db.scalars(stmt).all()
+    ]
 
 
 @router.get("/api/departamentos")
@@ -114,9 +152,9 @@ def responsaveis(ativo: bool | None = True, db: Session = Depends(get_db)):
 
 @router.get("/api/localizacoes")
 def localizacoes(
-    filial_id: int,
-    departamento_id: int,
-    db: Session = Depends(get_db),
+        filial_id: int,
+        departamento_id: int,
+        db: Session = Depends(get_db),
 ):
     return [
         _referencia(item)

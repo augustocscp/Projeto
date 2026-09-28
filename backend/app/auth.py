@@ -5,7 +5,7 @@ from typing import Any
 import urllib.parse
 
 from fastapi import APIRouter, Depends, Request, Response, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 import msal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from app.config import (
     AUTHORITY,
     CLIENT_ID,
     CLIENT_SECRET,
+    DEV_AUTH_BYPASS,
     REDIRECT_URI,
     SCOPES,
     TENANT_ID,
@@ -122,6 +123,36 @@ def _delete_session_cookie(response: Response) -> None:
         secure=False,
         samesite="lax",
     )
+
+
+@router.post("/auth/dev-login")
+def dev_login(db: Session = Depends(get_db)):
+    if not DEV_AUTH_BYPASS:
+        raise api_error(
+            status.HTTP_404_NOT_FOUND,
+            "MODO_DESENVOLVIMENTO_INATIVO",
+            "O acesso de desenvolvimento não está habilitado.",
+        )
+
+    usuario = _upsert_user(
+        db,
+        {
+            "oid": "desenvolvimento-local",
+            "preferred_username": "dev@sistema.local",
+            "name": "Desenvolvimento",
+        },
+    )
+    token = _create_session(db, usuario)
+    response = JSONResponse(_serialize_user(usuario))
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=token,
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+    )
+    return response
 
 
 def get_current_user(

@@ -1,7 +1,6 @@
 from app.schemas.categoria_patrimonial import CategoriaPatrimonialResponse
 from app.schemas.destinacao_patrimonial import DestinacaoPatrimonialResponse
 from app.schemas.estado_conservacao import EstadoConservacaoResponse
-from app.schemas.integracao_bigquery import IntegracaoBigQueryResponse
 from app.schemas.patrimonio import (
     PatrimonioCreate,
     PatrimonioListResponse,
@@ -15,7 +14,6 @@ __all__ = [
     "CategoriaPatrimonialResponse",
     "DestinacaoPatrimonialResponse",
     "EstadoConservacaoResponse",
-    "IntegracaoBigQueryResponse",
     "PatrimonioCreate",
     "PatrimonioListResponse",
     "PatrimonioResponse",

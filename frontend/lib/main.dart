@@ -7,12 +7,7 @@ import 'services/api_service.dart';
 import 'theme/app_theme.dart';
 
 // Desenvolvimento: altere para false para voltar a exigir login Microsoft.
-const bool _ignorarLoginEmDesenvolvimento = false;
-
-const Map<String, dynamic> _usuarioDesenvolvimento = {
-  'nome': 'Desenvolvimento',
-  'email': 'dev@sistema.local',
-};
+const bool _ignorarLoginEmDesenvolvimento = true;
 
 void main() {
   runApp(const PatrimonioApp());
@@ -40,12 +35,17 @@ class _PatrimonioAppState extends State<PatrimonioApp> {
 
   Future<void> _verificarSessao() async {
     if (_ignorarLoginEmDesenvolvimento) {
-      setState(() {
-        _usuario = _usuarioDesenvolvimento;
-        _autenticado = true;
-        _inicializado = true;
-      });
-      return;
+      try {
+        final usuario = await ApiService.loginDesenvolvimento();
+        setState(() {
+          _usuario = usuario;
+          _autenticado = true;
+          _inicializado = true;
+        });
+        return;
+      } catch (error) {
+        debugPrint('Falha ao iniciar sessão de desenvolvimento: $error');
+      }
     }
 
     try {
@@ -95,10 +95,6 @@ class _PatrimonioAppState extends State<PatrimonioApp> {
 
   Future<void> _logout() async {
     if (_ignorarLoginEmDesenvolvimento) {
-      setState(() {
-        _usuario = _usuarioDesenvolvimento;
-        _autenticado = true;
-      });
       return;
     }
 

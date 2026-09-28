@@ -9,7 +9,6 @@ from app.auth import get_current_user, router as auth_router
 from app.config import AUTO_CREATE_DATABASE_OBJECTS
 from app.database import create_database_objects
 from app.routers.cadastros_patrimoniais import router as cadastros_router
-from app.routers.integracoes import router as integracoes_router
 from app.routers.patrimonio import router as patrimonio_router
 
 @asynccontextmanager
@@ -52,7 +51,6 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(patrimonio_router)
 app.include_router(cadastros_router)
-app.include_router(integracoes_router)
 
 
 @app.get("/health")

@@ -9,7 +9,7 @@ from app.models.localizacao import Localizacao, LocalizacaoVinculo
 
 
 def listar_localizacoes(
-    db: Session, filial_id: int | None, departamento_id: int | None
+        db: Session, filial_id: int | None, departamento_id: int | None
 ) -> list[Localizacao]:
     stmt = (
         select(Localizacao)
@@ -20,17 +20,20 @@ def listar_localizacoes(
     )
     if filial_id is not None:
         stmt = stmt.where(LocalizacaoVinculo.filial_id == filial_id)
+        filial = db.get(Filial, filial_id)
+        if filial is not None and filial.tipo_unidade == "TERMINAL":
+            stmt = stmt.where(Localizacao.tipo == "TERMINAL")
     if departamento_id is not None:
         stmt = stmt.where(LocalizacaoVinculo.departamento_id == departamento_id)
     return list(db.scalars(stmt).all())
 
 
 def validar_localizacao(
-    db: Session,
-    empresa_id: int,
-    filial_id: int,
-    departamento_id: int,
-    localizacao_id: int,
+        db: Session,
+        empresa_id: int,
+        filial_id: int,
+        departamento_id: int,
+        localizacao_id: int,
 ) -> tuple[Empresa, Filial, Departamento, Localizacao]:
     empresa = db.get(Empresa, empresa_id)
     filial = db.get(Filial, filial_id)
@@ -47,7 +50,8 @@ def validar_localizacao(
         if entidade is None:
             raise api_error(404, codigo, "Recurso informado não encontrado.", [campo])
         if not entidade.ativo:
-            raise api_error(422, f"{codigo.removesuffix('_NAO_ENCONTRADA')}_INATIVA", "Recurso informado está inativo.", [campo])
+            raise api_error(422, f"{codigo.removesuffix('_NAO_ENCONTRADA')}_INATIVA", "Recurso informado está inativo.",
+                            [campo])
 
     if filial.empresa_id != empresa_id:
         raise api_error(
@@ -71,5 +75,12 @@ def validar_localizacao(
             "LOCALIZACAO_INVALIDA",
             "A localização não pertence à filial e ao departamento informados.",
             ["localizacao_id", "filial_id", "departamento_id"],
+        )
+    if filial.tipo_unidade == "TERMINAL" and localizacao.tipo != "TERMINAL":
+        raise api_error(
+            422,
+            "LOCALIZACAO_TERMINAL_INVALIDA",
+            "Filiais do tipo terminal aceitam apenas localizações do tipo terminal.",
+            ["localizacao_id", "filial_id"],
         )
     return empresa, filial, departamento, localizacao

@@ -11,7 +11,7 @@ from app.main import app
         ("get", "/api/patrimonio/resumo"),
         ("get", "/api/categorias-patrimoniais"),
         ("get", "/api/responsaveis"),
-        ("get", "/api/integracoes/protheus-bigquery/123"),
+        ("get", "/api/patrimonios/protheus-contabil?codigo_protheus=123&numero_item=1"),
     ],
 )
 def test_rotas_exigem_sessao(method, path):

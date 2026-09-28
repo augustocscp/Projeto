@@ -31,6 +31,7 @@ DATABASE_SCHEMA = os.environ.get("DATABASE_SCHEMA", "gadm")
 AUTO_CREATE_DATABASE_OBJECTS = (
     os.environ.get("AUTO_CREATE_DATABASE_OBJECTS", "false").lower() == "true"
 )
+DEV_AUTH_BYPASS = os.environ.get("DEV_AUTH_BYPASS", "false").lower() == "true"
 
 GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "")
 GCP_BIGQUERY_DATASET = os.environ.get("GCP_BIGQUERY_DATASET", "")
@@ -40,12 +41,9 @@ GCP_BIGQUERY_ENABLED = (
 )
 BIGQUERY_TABLE_SN1 = os.environ.get("BIGQUERY_TABLE_SN1", "")
 BIGQUERY_TABLE_SN3 = os.environ.get("BIGQUERY_TABLE_SN3", "")
-BIGQUERY_TABLE_SNG = os.environ.get("BIGQUERY_TABLE_SNG", "")
-# Os campos de filtro dependem do schema oficial ainda pendente. Mantê-los em
-# configuração evita incorporar suposições sobre SN1, SN3 e SNG ao código.
-BIGQUERY_FILTER_FIELD_SN1 = os.environ.get("BIGQUERY_FILTER_FIELD_SN1", "")
-BIGQUERY_FILTER_FIELD_SN3 = os.environ.get("BIGQUERY_FILTER_FIELD_SN3", "")
-BIGQUERY_FILTER_FIELD_SNG = os.environ.get("BIGQUERY_FILTER_FIELD_SNG", "")
+BIGQUERY_TABLE_SB1 = os.environ.get("BIGQUERY_TABLE_SB1", "")
+BIGQUERY_TABLE_FUNCIONARIOS = os.environ.get("BIGQUERY_TABLE_FUNCIONARIOS", "")
+BIGQUERY_TABLE_CTT = os.environ.get("BIGQUERY_TABLE_CTT", "")
 BIGQUERY_QUERY_TIMEOUT_SECONDS = int(
     os.environ.get("BIGQUERY_QUERY_TIMEOUT_SECONDS", "15")
 )

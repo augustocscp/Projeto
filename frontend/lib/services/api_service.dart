@@ -22,6 +22,12 @@ class ApiService {
     throw Exception('Falha ao carregar usuário');
   }
 
+  static Future<Map<String, dynamic>> loginDesenvolvimento() async {
+    final response = await _client.post(Uri.parse('$baseUrl/auth/dev-login'));
+    if (response.statusCode != 200) throw Exception(_errorMessage(response));
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
   static Future<Map<String, dynamic>> getPatrimonioResumo() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/api/patrimonio/resumo'),
@@ -73,6 +79,22 @@ class ApiService {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
+  static Future<Map<String, dynamic>> consultarPatrimonio(int id) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/patrimonios/$id'),
+    );
+    if (response.statusCode != 200) throw Exception(_errorMessage(response));
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  static Future<Map<String, dynamic>> consultarHistorico(int id) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/patrimonios/$id/historico'),
+    );
+    if (response.statusCode != 200) throw Exception(_errorMessage(response));
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
   static Future<List<Map<String, dynamic>>> listarCategorias() =>
       _getList('/api/categorias-patrimoniais');
 
@@ -117,11 +139,38 @@ class ApiService {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
-  static Future<Map<String, dynamic>> consultarProtheus(String codigo) async {
+  static Future<Map<String, dynamic>> consultarProtheusCadastral(
+    String codigo,
+    String numeroItem,
+  ) async {
     final response = await _client.get(
-      Uri.parse(
-        '$baseUrl/api/integracoes/protheus-bigquery/${Uri.encodeComponent(codigo)}',
+      Uri.parse('$baseUrl/api/patrimonios/protheus-cadastral').replace(
+        queryParameters: {'codigo_protheus': codigo, 'numero_item': numeroItem},
       ),
+    );
+    if (response.statusCode != 200) throw Exception(_errorMessage(response));
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  static Future<Map<String, dynamic>> consultarProtheusContabil(
+    String codigo,
+    String numeroItem,
+  ) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/patrimonios/protheus-contabil').replace(
+        queryParameters: {'codigo_protheus': codigo, 'numero_item': numeroItem},
+      ),
+    );
+    if (response.statusCode != 200) throw Exception(_errorMessage(response));
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  static Future<Map<String, dynamic>> consultarResponsavel(
+    String codigoRe,
+  ) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/responsaveis/protheus')
+          .replace(queryParameters: {'codigo_re': codigoRe}),
     );
     if (response.statusCode != 200) throw Exception(_errorMessage(response));
     return jsonDecode(response.body) as Map<String, dynamic>;

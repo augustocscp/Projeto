@@ -24,7 +24,7 @@ from app.models.responsavel import Responsavel  # noqa: E402
 from app.models.usuario import Usuario  # noqa: E402
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def migrated_database() -> Generator[None]:
     alembic_config = Config("alembic.ini")
     command.upgrade(alembic_config, "head")
@@ -93,7 +93,8 @@ def contexto(db: Session) -> dict:
     from app.models.situacao_patrimonial import SituacaoPatrimonial
 
     payload = {
-        "codigo_protheus": None,
+        "codigo_protheus": "BASE-TESTE",
+        "numero_item": "0001",
         "codigo_sap": None,
         "numero_plaqueta_fisica": "PLAQ-TESTE-001",
         "descricao": "Patrimônio de teste",
@@ -101,18 +102,18 @@ def contexto(db: Session) -> dict:
         "marca": None,
         "modelo": None,
         "fabricante": None,
-        "numero_serie": None,
+        "numero_serie": "SERIE-TESTE",
+        "possui_garantia": False,
         "data_fim_garantia": None,
         "empresa_id": empresa.id,
         "filial_id": filial.id,
         "departamento_id": vinculo.departamento_id,
         "localizacao_id": vinculo.localizacao_id,
-        "responsavel_id": responsavel.id,
+        "codigo_re": responsavel.codigo_re,
         "estado_conservacao_id": id_dominio(EstadoConservacao, "BOM"),
         "situacao_id": id_dominio(SituacaoPatrimonial, "EM_USO"),
         "destinacao_id": id_dominio(DestinacaoPatrimonial, "USO_INTERNO"),
         "observacao": None,
-        "data_baixa": None,
         "numero_patrimonio_anterior": None,
     }
     return {

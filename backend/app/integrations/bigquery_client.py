@@ -100,9 +100,8 @@ class BigQueryClient:
                     )
                 parametro = f"filtro_{indice}"
                 clausulas.append(f"`{campo}` = @{parametro}")
-                parametros.append(
-                    bigquery.ScalarQueryParameter(parametro, "STRING", str(valor))
-                )
+                tipo = "BOOL" if isinstance(valor, bool) else "INT64" if isinstance(valor, int) else "FLOAT64" if isinstance(valor, float) else "STRING"
+                parametros.append(bigquery.ScalarQueryParameter(parametro, tipo, valor))
 
             sql = (
                 f"SELECT * FROM `{tabela_completa}` WHERE "

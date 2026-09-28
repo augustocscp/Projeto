@@ -14,9 +14,14 @@ from app.models.filial import Filial
 from app.models.patrimonio import Patrimonio
 from app.models.situacao_patrimonial import SituacaoPatrimonial
 from app.schemas.patrimonio import PatrimonioCreate, PatrimonioUpdate
+from app.config import GCP_BIGQUERY_ENABLED
+from app.integrations.protheus_patrimonio_service import ProtheusPatrimonioService
+from app.integrations.protheus_contabil_service import ProtheusContabilService
+from app.integrations.bigquery_client import BigQueryIntegrationError
+from app.models.patrimonio_contabil import PatrimonioContabil
 from app.services.localizacao_service import validar_localizacao
-from app.services.responsavel_service import validar_responsavel
-
+from app.services.responsavel_service import resolver_responsavel
+from app.services.historico_service import registrar_alteracoes_controle, registrar_evento
 
 PATRIMONIO_LOAD_OPTIONS = (
     selectinload(Patrimonio.categoria),
@@ -28,6 +33,7 @@ PATRIMONIO_LOAD_OPTIONS = (
     selectinload(Patrimonio.estado_conservacao),
     selectinload(Patrimonio.situacao),
     selectinload(Patrimonio.destinacao),
+    selectinload(Patrimonio.contabil),
 )
 
 
@@ -50,21 +56,13 @@ def _validar_dominio(db: Session, model, identificador: int, campo: str):
     return registro
 
 
-def _validar_baixa(situacao: SituacaoPatrimonial, data_baixa) -> None:
-    if situacao.codigo == "BAIXADO" and data_baixa is None:
-        raise api_error(
-            422,
-            "DATA_BAIXA_OBRIGATORIA",
-            "A data de baixa é obrigatória para patrimônio baixado.",
-            ["situacao_id", "data_baixa"],
-        )
-    if situacao.codigo != "BAIXADO" and data_baixa is not None:
-        raise api_error(
-            422,
-            "DATA_BAIXA_INVALIDA",
-            "A data de baixa deve ser nula quando o patrimônio não está baixado.",
-            ["situacao_id", "data_baixa"],
-        )
+SITUACOES_BAIXA = {"BAIXADO", "ALIENADO", "EXTRAVIADO", "SINISTRADO"}
+
+
+def _validar_baixa(situacao: SituacaoPatrimonial, data_baixa_origem) -> None:
+    if data_baixa_origem is not None and situacao.codigo not in SITUACOES_BAIXA:
+        raise api_error(422, "SITUACAO_INCOMPATIVEL_COM_BAIXA",
+                        "A situação deve ser compatível com a baixa informada pelo Protheus.", ["situacao_id"])
 
 
 def _proximo_numero_tombo(db: Session) -> str:
@@ -113,20 +111,42 @@ def _validar_referencias(db: Session, dados: dict) -> SituacaoPatrimonial:
         dados["departamento_id"],
         dados["localizacao_id"],
     )
-    validar_responsavel(db, dados["responsavel_id"])
-    _validar_baixa(situacao, dados.get("data_baixa"))
+    _validar_baixa(situacao, dados.get("data_baixa_origem"))
     return situacao
 
 
 def criar_patrimonio(
-    db: Session, payload: PatrimonioCreate, usuario_id: int
+        db: Session, payload: PatrimonioCreate, usuario_id: int
 ) -> Patrimonio:
     dados = payload.model_dump()
+    codigo_re = dados.pop("codigo_re")
+    responsavel = resolver_responsavel(db, codigo_re, usuario_id)
+    dados["responsavel_id"] = responsavel.id
+    contabil_dados = None
+    if GCP_BIGQUERY_ENABLED:
+        try:
+            cadastral = ProtheusPatrimonioService().consultar(dados["codigo_protheus"], dados["numero_item"])
+            contabil_dados = ProtheusContabilService().consultar(dados["codigo_protheus"], dados["numero_item"])
+        except BigQueryIntegrationError as exc:
+            registrar_evento(db, "FALHA_INTEGRACAO", "Falha técnica na consulta de criação.", usuario_id=usuario_id)
+            db.commit()
+            raise api_error(503, "INTEGRACAO_INDISPONIVEL", "Integração com o Protheus indisponível.") from exc
+        if cadastral is None:
+            raise api_error(404, "PATRIMONIO_PROTHEUS_NAO_ENCONTRADO", "Bem não encontrado no Protheus.",
+                            ["codigo_protheus", "numero_item"])
+        for campo in ("codigo_produto", "descricao", "modelo", "fabricante"):
+            dados[campo] = cadastral.get(campo)
+        if contabil_dados:
+            dados["data_baixa_origem"] = contabil_dados.get("data_baixa_sn1")
+    if not dados.get("descricao"):
+        raise api_error(422, "DESCRICAO_OBRIGATORIA",
+                        "Descrição não obtida do Protheus; informe-a para cadastro com integração inativa.",
+                        ["descricao"])
     _validar_referencias(db, dados)
     if db.scalar(
-        select(Patrimonio.id).where(
-            Patrimonio.numero_plaqueta_fisica == dados["numero_plaqueta_fisica"]
-        )
+            select(Patrimonio.id).where(
+                Patrimonio.numero_plaqueta_fisica == dados["numero_plaqueta_fisica"]
+            )
     ):
         raise api_error(
             409,
@@ -156,29 +176,50 @@ def criar_patrimonio(
             "Não foi possível criar o patrimônio por conflito de dados.",
             ["numero_plaqueta_fisica"],
         ) from exc
+    if contabil_dados:
+        extras = {"multiplos_sn3", "divergencia_baixa"}
+        snapshot = PatrimonioContabil(patrimonio_id=patrimonio.id,
+                                      **{k: v for k, v in contabil_dados.items() if k not in extras})
+        db.add(snapshot)
+        if contabil_dados.get("multiplos_sn3"):
+            registrar_evento(db, "FALHA_INTEGRACAO",
+                             "Mais de um registro N3_TIPO='10' encontrado; utilizado o primeiro.",
+                             patrimonio_id=patrimonio.id, usuario_id=usuario_id)
+        if contabil_dados.get("divergencia_baixa"):
+            registrar_evento(db, "DIVERGENCIA_BAIXA", "Divergência entre as informações de baixa da SN1 e SN3.",
+                             patrimonio_id=patrimonio.id, usuario_id=usuario_id)
+    registrar_evento(db, "CRIACAO", "Patrimônio criado.", patrimonio_id=patrimonio.id, usuario_id=usuario_id)
+    db.commit()
     return obter_patrimonio(db, patrimonio.id)
 
 
 def atualizar_patrimonio(
-    db: Session,
-    patrimonio_id: int,
-    payload: PatrimonioUpdate,
-    usuario_id: int,
+        db: Session,
+        patrimonio_id: int,
+        payload: PatrimonioUpdate,
+        usuario_id: int,
 ) -> Patrimonio:
     patrimonio = obter_patrimonio(db, patrimonio_id)
     alteracoes = payload.model_dump(exclude_unset=True)
     if not alteracoes:
         return patrimonio
 
-    campos_movimento = {"empresa_id", "filial_id", "departamento_id", "localizacao_id"}
+    for campo in ("codigo_protheus", "numero_item", "numero_serie"):
+        if campo in alteracoes and alteracoes[campo] is None:
+            raise api_error(422, "CAMPO_OBRIGATORIO", "Campo obrigatório não pode ser nulo.", [campo])
+
+    codigo_re = alteracoes.pop("codigo_re", None)
+    if codigo_re is not None:
+        alteracoes["responsavel_id"] = resolver_responsavel(db, codigo_re, usuario_id, patrimonio_id).id
+    campos_movimento = {"empresa_id", "filial_id", "departamento_id", "localizacao_id", "responsavel_id"}
     movimentado = any(
         campo in alteracoes and alteracoes[campo] != getattr(patrimonio, campo)
         for campo in campos_movimento
     )
-    if patrimonio.situacao.codigo == "BAIXADO" and movimentado:
+    if (patrimonio.data_baixa_origem is not None or patrimonio.situacao.codigo in SITUACOES_BAIXA) and movimentado:
         raise api_error(
             409,
-            "PATRIMONIO_BAIXADO",
+            "PATRIMONIO_BAIXADO_NAO_MOVIMENTAVEL",
             "Patrimônio baixado não pode ser movimentado.",
             sorted(campos_movimento),
         )
@@ -195,18 +236,26 @@ def atualizar_patrimonio(
             "departamento_id",
             "localizacao_id",
             "responsavel_id",
-            "data_baixa",
+            "data_baixa_origem",
         )
     }
     _validar_referencias(db, finais)
+
+    garantia = alteracoes.get("possui_garantia", patrimonio.possui_garantia)
+    data_garantia = alteracoes.get("data_fim_garantia", patrimonio.data_fim_garantia)
+    if garantia != (data_garantia is not None):
+        raise api_error(422, "GARANTIA_INVALIDA", "Data de garantia inconsistente com possui_garantia.",
+                        ["possui_garantia", "data_fim_garantia"])
 
     if alteracoes.get("numero_plaqueta_fisica") is None and "numero_plaqueta_fisica" in alteracoes:
         raise api_error(422, "PLAQUETA_OBRIGATORIA", "A plaqueta física é obrigatória.", ["numero_plaqueta_fisica"])
     if alteracoes.get("descricao") is None and "descricao" in alteracoes:
         raise api_error(422, "DESCRICAO_OBRIGATORIA", "A descrição é obrigatória.", ["descricao"])
 
+    anterior = {campo: getattr(patrimonio, campo) for campo in alteracoes}
     for campo, valor in alteracoes.items():
         setattr(patrimonio, campo, valor)
+    registrar_alteracoes_controle(db, patrimonio_id, usuario_id, anterior, alteracoes)
     patrimonio.usuario_ultima_atualizacao_id = usuario_id
     patrimonio.data_ultima_atualizacao = datetime.now(timezone.utc)
     try:
@@ -223,31 +272,32 @@ def atualizar_patrimonio(
 
 
 def inativar_patrimonio(
-    db: Session, patrimonio_id: int, usuario_id: int
+        db: Session, patrimonio_id: int, usuario_id: int
 ) -> Patrimonio:
     patrimonio = obter_patrimonio(db, patrimonio_id)
     patrimonio.ativo = False
     patrimonio.usuario_ultima_atualizacao_id = usuario_id
     patrimonio.data_ultima_atualizacao = datetime.now(timezone.utc)
+    registrar_evento(db, "INATIVACAO", "Patrimônio inativado.", patrimonio_id=patrimonio_id, usuario_id=usuario_id)
     db.commit()
     return obter_patrimonio(db, patrimonio_id)
 
 
 def listar_patrimonios(
-    db: Session,
-    page: int,
-    page_size: int,
-    filtros: dict,
+        db: Session,
+        page: int,
+        page_size: int,
+        filtros: dict,
 ) -> dict:
     criterios = []
     for campo in (
-        "situacao_id",
-        "categoria_id",
-        "filial_id",
-        "departamento_id",
-        "localizacao_id",
-        "responsavel_id",
-        "ativo",
+            "situacao_id",
+            "categoria_id",
+            "filial_id",
+            "departamento_id",
+            "localizacao_id",
+            "responsavel_id",
+            "ativo",
     ):
         if filtros.get(campo) is not None:
             criterios.append(getattr(Patrimonio, campo) == filtros[campo])
@@ -313,6 +363,7 @@ def patrimonio_response(patrimonio: Patrimonio) -> dict:
         "id": patrimonio.id,
         "numero_tombo": patrimonio.numero_tombo,
         "codigo_protheus": patrimonio.codigo_protheus,
+        "numero_item": patrimonio.numero_item,
         "codigo_sap": patrimonio.codigo_sap,
         "numero_plaqueta_fisica": patrimonio.numero_plaqueta_fisica,
         "descricao": patrimonio.descricao,
@@ -321,6 +372,8 @@ def patrimonio_response(patrimonio: Patrimonio) -> dict:
         "modelo": patrimonio.modelo,
         "fabricante": patrimonio.fabricante,
         "numero_serie": patrimonio.numero_serie,
+        "possui_garantia": patrimonio.possui_garantia,
+        "codigo_produto": patrimonio.codigo_produto,
         "data_fim_garantia": patrimonio.data_fim_garantia,
         "empresa": referencia(patrimonio.empresa),
         "filial": referencia(patrimonio.filial),
@@ -332,11 +385,23 @@ def patrimonio_response(patrimonio: Patrimonio) -> dict:
         "situacao": referencia(patrimonio.situacao),
         "destinacao": referencia(patrimonio.destinacao),
         "observacao": patrimonio.observacao,
-        "data_baixa": patrimonio.data_baixa,
+        "data_baixa_origem": patrimonio.data_baixa_origem,
         "numero_patrimonio_anterior": patrimonio.numero_patrimonio_anterior,
         "protheus_status": patrimonio.protheus_status,
         "protheus_consultado_em": patrimonio.protheus_consultado_em,
         "criado_em": patrimonio.data_cadastro,
         "atualizado_em": patrimonio.data_ultima_atualizacao,
         "ativo": patrimonio.ativo,
+        "contabil": contabil_response(patrimonio.contabil),
+        "contabil_em_cache": True,
     }
+
+
+def contabil_response(snapshot: PatrimonioContabil | None) -> dict | None:
+    if snapshot is None:
+        return None
+    return {campo: getattr(snapshot, campo) for campo in (
+        "numero_nota_fiscal", "serie_nota_fiscal", "data_nota_fiscal", "codigo_fornecedor", "fornecedor",
+        "valor_aquisicao", "icms", "valor_atual", "percentual_depreciacao", "depreciacao_mensal",
+        "depreciacao_acumulada", "inicio_depreciacao", "fim_depreciacao", "conta_contabil", "centro_custo",
+        "data_baixa_sn1", "data_baixa_sn3", "consultado_em")}

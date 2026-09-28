@@ -18,11 +18,15 @@ def test_migrations_criam_estrutura_e_seeds(db):
         "responsaveis",
         "patrimonios",
         "integracao_bigquery_staging",
+        "patrimonios_contabeis",
+        "historico_contabil",
+        "historico_controle_patrimonial",
+        "historico_sistema",
     } <= tabelas
-    assert db.scalar(select(func.count(CategoriaPatrimonial.id))) == 0
+    assert db.scalar(select(func.count(CategoriaPatrimonial.id))) == 7
     assert db.scalar(select(func.count(EstadoConservacao.id))) == 6
-    assert db.scalar(select(func.count(SituacaoPatrimonial.id))) == 6
-    assert db.scalar(select(func.count(DestinacaoPatrimonial.id))) == 6
+    assert db.scalar(select(func.count(SituacaoPatrimonial.id))) == 9
+    assert db.scalar(select(func.count(DestinacaoPatrimonial.id))) == 10
 
 
 def test_seeds_nao_possuem_codigos_duplicados(db):
@@ -33,4 +37,4 @@ def test_seeds_nao_possuem_codigos_duplicados(db):
     ):
         total = db.scalar(select(func.count(model.id)))
         distintos = db.scalar(select(func.count(func.distinct(model.codigo))))
-        assert total == distintos == 6
+        assert total == distintos

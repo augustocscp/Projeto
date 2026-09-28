@@ -88,6 +88,25 @@ class _PatrimonioScreenState extends State<PatrimonioScreen> {
     }
   }
 
+  Future<void> _detalhar(Map<String, dynamic> item) async {
+    try {
+      final resultados = await Future.wait([
+        ApiService.consultarPatrimonio(item['id'] as int),
+        ApiService.consultarHistorico(item['id'] as int),
+      ]);
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => _PatrimonioDetailDialog(
+          patrimonio: resultados[0],
+          historico: resultados[1],
+        ),
+      );
+    } catch (error) {
+      if (mounted) _mostrarErro(error);
+    }
+  }
+
   void _mostrarErro(Object error) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
@@ -193,17 +212,132 @@ class _PatrimonioScreenState extends State<PatrimonioScreen> {
                 DataCell(Text(item['situacao']['nome'] as String)),
                 DataCell(Text(item['responsavel']['nome'] as String)),
                 DataCell(
-                  IconButton(
-                    tooltip: ativo ? 'Inativar' : 'Patrimônio inativo',
-                    onPressed: ativo ? () => _inativar(item) : null,
-                    icon: Icon(
-                      ativo ? Icons.block_outlined : Icons.check_circle_outline,
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Ver detalhes',
+                        onPressed: () => _detalhar(item),
+                        icon: const Icon(Icons.visibility_outlined),
+                      ),
+                      IconButton(
+                        tooltip: ativo ? 'Inativar' : 'Patrimônio inativo',
+                        onPressed: ativo ? () => _inativar(item) : null,
+                        icon: Icon(
+                          ativo
+                              ? Icons.block_outlined
+                              : Icons.check_circle_outline,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             );
           }).toList(),
+        ),
+      ),
+    );
+  }
+}
+
+class _PatrimonioDetailDialog extends StatelessWidget {
+  final Map<String, dynamic> patrimonio;
+  final Map<String, dynamic> historico;
+
+  const _PatrimonioDetailDialog({
+    required this.patrimonio,
+    required this.historico,
+  });
+
+  Widget _linha(String label, Object? value) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 5),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 190,
+          child: Text(
+            label,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
+        Expanded(child: SelectableText(value?.toString() ?? '-')),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final contabil = patrimonio['contabil'] as Map<String, dynamic>?;
+    final responsavel = patrimonio['responsavel'] as Map<String, dynamic>?;
+    final eventos = <dynamic>[
+      ...(historico['contabil'] as List<dynamic>? ?? []),
+      ...(historico['controle_patrimonial'] as List<dynamic>? ?? []),
+      ...(historico['sistema'] as List<dynamic>? ?? []),
+    ];
+    return Dialog(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 880, maxHeight: 760),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 18, 12, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      patrimonio['numero_tombo'] as String,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Fechar',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const _SectionTitle('Identificação'),
+                    _linha('Código Protheus', patrimonio['codigo_protheus']),
+                    _linha('Nº do Item', patrimonio['numero_item']),
+                    _linha('Descrição', patrimonio['descricao']),
+                    _linha('Número de Série', patrimonio['numero_serie']),
+                    _linha('Responsável', responsavel?['nome']),
+                    const _SectionTitle('Contabilidade'),
+                    if (contabil == null)
+                      const Text('Nenhum snapshot contábil disponível.')
+                    else ...[
+                      _linha('Nota Fiscal', contabil['numero_nota_fiscal']),
+                      _linha('Série', contabil['serie_nota_fiscal']),
+                      _linha('Valor de Aquisição', contabil['valor_aquisicao']),
+                      _linha(
+                        'Depreciação Acumulada',
+                        contabil['depreciacao_acumulada'],
+                      ),
+                      _linha('Valor Atual', contabil['valor_atual']),
+                      _linha('Conta Contábil', contabil['conta_contabil']),
+                      _linha('Centro de Custo', contabil['centro_custo']),
+                      _linha('Última consulta', contabil['consultado_em']),
+                    ],
+                    const _SectionTitle('Histórico'),
+                    _linha('Eventos registrados', eventos.length),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -222,6 +356,7 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
   final _controllers = <String, TextEditingController>{
     for (final field in [
       'codigo_protheus',
+      'numero_item',
       'codigo_sap',
       'numero_plaqueta_fisica',
       'descricao',
@@ -229,6 +364,7 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
       'modelo',
       'fabricante',
       'numero_serie',
+      'codigo_re',
       'numero_patrimonio_anterior',
       'observacao',
     ])
@@ -243,7 +379,6 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
   List<Map<String, dynamic>> filiais = [];
   List<Map<String, dynamic>> departamentos = [];
   List<Map<String, dynamic>> localizacoes = [];
-  List<Map<String, dynamic>> responsaveis = [];
   int? categoriaId;
   int? estadoId;
   int? situacaoId;
@@ -252,9 +387,9 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
   int? filialId;
   int? departamentoId;
   int? localizacaoId;
-  int? responsavelId;
+  String cidadeSelecionada = '';
+  bool possuiGarantia = false;
   DateTime? garantia;
-  DateTime? dataBaixa;
   bool carregando = true;
   bool salvando = false;
   String? erro;
@@ -282,7 +417,6 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
         ApiService.listarDestinacoes(),
         ApiService.listarEmpresas(),
         ApiService.listarDepartamentos(),
-        ApiService.listarResponsaveis(),
       ]);
       if (!mounted) return;
       setState(() {
@@ -292,7 +426,6 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
         destinacoes = resultados[3];
         empresas = resultados[4];
         departamentos = resultados[5];
-        responsaveis = resultados[6];
         carregando = false;
       });
     } catch (error) {
@@ -309,6 +442,7 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
     setState(() {
       empresaId = id;
       filialId = null;
+      cidadeSelecionada = '';
       localizacaoId = null;
       filiais = [];
       localizacoes = [];
@@ -384,14 +518,28 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
 
   Future<void> _consultarProtheus() async {
     final codigo = _controllers['codigo_protheus']!.text.trim();
-    if (codigo.isEmpty) return;
+    final item = _controllers['numero_item']!.text.trim();
+    if (codigo.isEmpty || item.isEmpty) {
+      setState(() => erro = 'Informe o Código Protheus e o Nº do Item.');
+      return;
+    }
     try {
-      final resposta = await ApiService.consultarProtheus(codigo);
+      final cadastral = await ApiService.consultarProtheusCadastral(
+        codigo,
+        item,
+      );
+      final resposta = await ApiService.consultarProtheusContabil(codigo, item);
       if (!mounted) return;
+      final dados = cadastral['dados'] as Map<String, dynamic>?;
+      if (dados != null) {
+        _controllers['descricao']!.text = dados['descricao'] as String? ?? '';
+        _controllers['modelo']!.text = dados['modelo'] as String? ?? '';
+        _controllers['fabricante']!.text = dados['fabricante'] as String? ?? '';
+      }
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Retorno exploratório do BigQuery'),
+          title: const Text('Dados contábeis do Protheus'),
           content: SizedBox(
             width: 680,
             child: SingleChildScrollView(
@@ -413,29 +561,25 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
     }
   }
 
-  Future<void> _selecionarData(bool baixa) async {
+  Future<void> _selecionarGarantia() async {
     final data = await showDatePicker(
       context: context,
       firstDate: DateTime(1990),
       lastDate: DateTime(2100),
-      initialDate: (baixa ? dataBaixa : garantia) ?? DateTime.now(),
+      initialDate: garantia ?? DateTime.now(),
     );
     if (data != null) {
-      setState(() => baixa ? dataBaixa = data : garantia = data);
+      setState(() => garantia = data);
     }
   }
 
   String _date(DateTime value) =>
       '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 
-  bool get _situacaoBaixada => situacoes.any(
-    (item) => item['id'] == situacaoId && item['codigo'] == 'BAIXADO',
-  );
-
   Future<void> _salvar() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_situacaoBaixada && dataBaixa == null) {
-      setState(() => erro = 'Informe a data de baixa.');
+    if (possuiGarantia && garantia == null) {
+      setState(() => erro = 'Informe a data de fim da garantia.');
       return;
     }
     setState(() {
@@ -450,6 +594,7 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
     try {
       await ApiService.criarPatrimonio({
         'codigo_protheus': opcional('codigo_protheus'),
+        'numero_item': _controllers['numero_item']!.text.trim(),
         'codigo_sap': opcional('codigo_sap'),
         'numero_plaqueta_fisica': _controllers['numero_plaqueta_fisica']!.text
             .trim(),
@@ -459,19 +604,17 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
         'modelo': opcional('modelo'),
         'fabricante': opcional('fabricante'),
         'numero_serie': opcional('numero_serie'),
+        'possui_garantia': possuiGarantia,
         'data_fim_garantia': garantia == null ? null : _date(garantia!),
         'empresa_id': empresaId,
         'filial_id': filialId,
         'departamento_id': departamentoId,
         'localizacao_id': localizacaoId,
-        'responsavel_id': responsavelId,
+        'codigo_re': _controllers['codigo_re']!.text.trim(),
         'estado_conservacao_id': estadoId,
         'situacao_id': situacaoId,
         'destinacao_id': destinacaoId,
         'observacao': opcional('observacao'),
-        'data_baixa': _situacaoBaixada && dataBaixa != null
-            ? _date(dataBaixa!)
-            : null,
         'numero_patrimonio_anterior': opcional('numero_patrimonio_anterior'),
       });
       if (mounted) {
@@ -559,8 +702,9 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
                                   width: 270,
                                   child: TextFormField(
                                     controller: _controllers['codigo_protheus'],
+                                    validator: _obrigatorio,
                                     decoration: InputDecoration(
-                                      labelText: 'Código Protheus',
+                                      labelText: 'Código Protheus *',
                                       suffixIcon: IconButton(
                                         tooltip: 'Consultar BigQuery',
                                         onPressed: _consultarProtheus,
@@ -568,6 +712,11 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
                                       ),
                                     ),
                                   ),
+                                ),
+                                _texto(
+                                  'numero_item',
+                                  'Nº do Item *',
+                                  required: true,
                                 ),
                                 _texto('codigo_sap', 'Código SAP'),
                                 _texto(
@@ -592,11 +741,29 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
                                 _texto('marca', 'Marca'),
                                 _texto('modelo', 'Modelo'),
                                 _texto('fabricante', 'Fabricante'),
-                                _texto('numero_serie', 'Número de série'),
+                                _texto(
+                                  'numero_serie',
+                                  'Número de Série *',
+                                  required: true,
+                                ),
+                                SizedBox(
+                                  width: 270,
+                                  child: SwitchListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('Possui Garantia? *'),
+                                    value: possuiGarantia,
+                                    onChanged: (value) => setState(() {
+                                      possuiGarantia = value;
+                                      if (!value) garantia = null;
+                                    }),
+                                  ),
+                                ),
                                 _DateButton(
                                   label: 'Fim da garantia',
                                   value: garantia,
-                                  onPressed: () => _selecionarData(false),
+                                  onPressed: possuiGarantia
+                                      ? _selecionarGarantia
+                                      : null,
                                 ),
                               ],
                             ),
@@ -614,9 +781,34 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
                                   _selecionarEmpresa,
                                 ),
                                 _dropdown('Filial', filiais, filialId, (id) {
-                                  setState(() => filialId = id);
+                                  setState(() {
+                                    filialId = id;
+                                    final filial = filiais.firstWhere(
+                                      (item) => item['id'] == id,
+                                      orElse: () => <String, dynamic>{},
+                                    );
+                                    final cidade =
+                                        filial['cidade']
+                                            as Map<String, dynamic>?;
+                                    cidadeSelecionada = cidade == null
+                                        ? ''
+                                        : '${cidade['nome']} - ${cidade['uf']}';
+                                  });
                                   _atualizarLocalizacoes();
                                 }),
+                                SizedBox(
+                                  width: 270,
+                                  child: InputDecorator(
+                                    decoration: const InputDecoration(
+                                      labelText: 'Cidade',
+                                    ),
+                                    child: Text(
+                                      cidadeSelecionada.isEmpty
+                                          ? 'Selecione uma filial'
+                                          : cidadeSelecionada,
+                                    ),
+                                  ),
+                                ),
                                 _dropdown(
                                   'Departamento',
                                   departamentos,
@@ -632,11 +824,10 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
                                   localizacaoId,
                                   (id) => setState(() => localizacaoId = id),
                                 ),
-                                _dropdown(
-                                  'Responsável',
-                                  responsaveis,
-                                  responsavelId,
-                                  (id) => setState(() => responsavelId = id),
+                                _texto(
+                                  'codigo_re',
+                                  'RE do Responsável *',
+                                  required: true,
                                 ),
                               ],
                             ),
@@ -655,10 +846,7 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
                                   'Situação',
                                   situacoes,
                                   situacaoId,
-                                  (id) => setState(() {
-                                    situacaoId = id;
-                                    if (!_situacaoBaixada) dataBaixa = null;
-                                  }),
+                                  (id) => setState(() => situacaoId = id),
                                 ),
                                 _dropdown(
                                   'Destinação',
@@ -666,12 +854,6 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
                                   destinacaoId,
                                   (id) => setState(() => destinacaoId = id),
                                 ),
-                                if (_situacaoBaixada)
-                                  _DateButton(
-                                    label: 'Data de baixa',
-                                    value: dataBaixa,
-                                    onPressed: () => _selecionarData(true),
-                                  ),
                                 _texto('observacao', 'Observação', lines: 3),
                               ],
                             ),
@@ -714,6 +896,7 @@ class _PatrimonioFormDialogState extends State<_PatrimonioFormDialog> {
 
 class _SectionTitle extends StatelessWidget {
   final String text;
+
   const _SectionTitle(this.text);
 
   @override
@@ -729,7 +912,8 @@ class _SectionTitle extends StatelessWidget {
 class _DateButton extends StatelessWidget {
   final String label;
   final DateTime? value;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
+
   const _DateButton({
     required this.label,
     required this.value,

@@ -10,6 +10,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    CheckConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -30,6 +31,12 @@ class Patrimonio(Base):
         UniqueConstraint(
             "numero_plaqueta_fisica", name="uq_patrimonios_numero_plaqueta_fisica"
         ),
+        UniqueConstraint("codigo_protheus", "numero_item", name="uq_patrimonios_protheus_item"),
+        CheckConstraint(
+            "(possui_garantia AND data_fim_garantia IS NOT NULL) OR "
+            "(NOT possui_garantia AND data_fim_garantia IS NULL)",
+            name="ck_patrimonios_garantia_data",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -40,7 +47,8 @@ class Patrimonio(Base):
             f"'PAT-' || lpad(nextval('{DATABASE_SCHEMA}.patrimonio_numero_tombo_seq')::text, 6, '0')"
         ),
     )
-    codigo_protheus: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    codigo_protheus: Mapped[str] = mapped_column(String(100), index=True)
+    numero_item: Mapped[str] = mapped_column(String(100), index=True)
     codigo_sap: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     numero_plaqueta_fisica: Mapped[str] = mapped_column(String(100), index=True)
     numero_patrimonio_anterior: Mapped[str | None] = mapped_column(
@@ -53,8 +61,11 @@ class Patrimonio(Base):
     marca: Mapped[str | None] = mapped_column(String(255), nullable=True)
     modelo: Mapped[str | None] = mapped_column(String(255), nullable=True)
     fabricante: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    numero_serie: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    numero_serie: Mapped[str] = mapped_column(String(255))
+    possui_garantia: Mapped[bool] = mapped_column(Boolean)
+    codigo_produto: Mapped[str | None] = mapped_column(String(100), nullable=True)
     data_fim_garantia: Mapped[date | None] = mapped_column(Date, nullable=True)
+    data_baixa_origem: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     empresa_id: Mapped[int] = mapped_column(
         ForeignKey(f"{DATABASE_SCHEMA}.empresas.id"), index=True
     )
@@ -114,3 +125,4 @@ class Patrimonio(Base):
     usuario_ultima_atualizacao = relationship(
         "Usuario", foreign_keys=[usuario_ultima_atualizacao_id]
     )
+    contabil = relationship("PatrimonioContabil", back_populates="patrimonio", uselist=False)

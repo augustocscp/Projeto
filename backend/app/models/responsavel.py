@@ -21,13 +21,16 @@ class Responsavel(Base):
     codigo_re: Mapped[str] = mapped_column(String(50), index=True)
     nome: Mapped[str] = mapped_column(String(255), index=True)
     cargo: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    departamento_id: Mapped[int] = mapped_column(
-        ForeignKey(f"{DATABASE_SCHEMA}.departamentos.id"), index=True
+    departamento_id: Mapped[int | None] = mapped_column(
+        ForeignKey(f"{DATABASE_SCHEMA}.departamentos.id"), nullable=True, index=True
     )
     gestor_responsavel_id: Mapped[int | None] = mapped_column(
         ForeignKey(f"{DATABASE_SCHEMA}.responsaveis.id"), nullable=True, index=True
     )
     origem_dados: Mapped[str] = mapped_column(String(30), default="MANUAL")
+    departamento_externo: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    gestor_responsavel: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    consultado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     atualizado_em: Mapped[datetime] = mapped_column(

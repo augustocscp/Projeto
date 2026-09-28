@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, datetime, timezone
 import re
 
 from sqlalchemy import select
@@ -10,6 +10,11 @@ from app.models.departamento import Departamento
 from app.models.filial import Filial
 from app.models.localizacao import LocalizacaoVinculo
 from app.models.situacao_patrimonial import SituacaoPatrimonial
+from app.models.historico_controle_patrimonial import HistoricoControlePatrimonial
+from app.models.historico_contabil import HistoricoContabil
+from app.models.historico_sistema import HistoricoSistema
+from app.models.patrimonio import Patrimonio
+from app.services.contabilidade_service import atualizar_snapshot
 from app.schemas.patrimonio import PatrimonioCreate
 from app.services.patrimonio_service import _proximo_numero_tombo
 
@@ -50,27 +55,23 @@ def test_categoria_inativa_nao_pode_ser_usada(client, contexto, db):
 
 
 def test_responsavel_inexistente(client, contexto):
-    payload = contexto["payload"] | {"responsavel_id": 999999}
+    payload = contexto["payload"] | {"codigo_re": "RE-INEXISTENTE"}
     response = client.post("/api/patrimonios", json=payload)
-    assert response.status_code == 404
+    assert response.status_code == 503
 
 
-def test_baixado_exige_data(client, contexto, db):
-    baixado_id = db.scalar(
-        select(SituacaoPatrimonial.id).where(SituacaoPatrimonial.codigo == "BAIXADO")
-    )
+def test_garantia_true_exige_data(client, contexto):
     response = client.post(
         "/api/patrimonios",
-        json=contexto["payload"] | {"situacao_id": baixado_id},
+        json=contexto["payload"] | {"possui_garantia": True},
     )
     assert response.status_code == 422
-    assert response.json()["detail"]["codigo"] == "DATA_BAIXA_OBRIGATORIA"
 
 
-def test_situacao_ativa_rejeita_data_baixa(client, contexto):
+def test_garantia_false_rejeita_data(client, contexto):
     response = client.post(
         "/api/patrimonios",
-        json=contexto["payload"] | {"data_baixa": date.today().isoformat()},
+        json=contexto["payload"] | {"data_fim_garantia": date.today().isoformat()},
     )
     assert response.status_code == 422
 
@@ -86,13 +87,15 @@ def test_consulta_inexistente(client):
     assert response.status_code == 404
 
 
-def test_atualizacao_inativacao_e_resumo(client, contexto):
+def test_atualizacao_inativacao_e_resumo(client, contexto, db):
     created = client.post("/api/patrimonios", json=contexto["payload"]).json()
     updated = client.patch(
         f"/api/patrimonios/{created['id']}", json={"descricao": "Atualizado"}
     )
     assert updated.status_code == 200
     assert updated.json()["descricao"] == "Atualizado"
+    historicos = list(db.scalars(select(HistoricoControlePatrimonial)))
+    assert any(item.campo_alterado == "descricao" for item in historicos)
     inactivated = client.patch(f"/api/patrimonios/{created['id']}/inativar")
     assert inactivated.status_code == 200
     assert inactivated.json()["ativo"] is False
@@ -101,13 +104,45 @@ def test_atualizacao_inativacao_e_resumo(client, contexto):
     assert resumo["bensInativos"] == 1
 
 
+def test_rejeita_todos_em_localizacao(client, contexto):
+    response = client.post("/api/patrimonios", json=contexto["payload"] | {"empresa_id": "Todos"})
+    assert response.status_code == 422
+
+
+def test_snapshot_historico_e_divergencia_baixa(client, contexto, db, monkeypatch):
+    criado = client.post("/api/patrimonios", json=contexto["payload"]).json()
+    patrimonio = db.get(Patrimonio, criado["id"])
+    monkeypatch.setattr("app.services.contabilidade_service.GCP_BIGQUERY_ENABLED", True)
+
+    class FakeContabil:
+        def __init__(self, valor): self.valor = valor
+
+        def consultar(self, codigo, item):
+            return {
+                "numero_nota_fiscal": "NF", "serie_nota_fiscal": "1", "data_nota_fiscal": None,
+                "codigo_fornecedor": None, "fornecedor": None, "valor_aquisicao": self.valor,
+                "icms": None, "valor_atual": self.valor, "percentual_depreciacao": None,
+                "depreciacao_mensal": None, "depreciacao_acumulada": None,
+                "inicio_depreciacao": None, "fim_depreciacao": None, "conta_contabil": None,
+                "centro_custo": None, "data_baixa_sn1": datetime.now(timezone.utc), "data_baixa_sn3": None,
+                "consultado_em": patrimonio.data_cadastro, "dados_brutos_sn1": {}, "dados_brutos_sn3": {},
+                "multiplos_sn3": False, "divergencia_baixa": True,
+            }
+
+    atualizar_snapshot(db, patrimonio, contexto["usuario"].id, FakeContabil(100))
+    assert db.scalar(select(HistoricoContabil.id)) is None
+    assert db.scalar(select(HistoricoSistema).where(HistoricoSistema.tipo_evento == "DIVERGENCIA_BAIXA")) is not None
+    db.expire(patrimonio, ["contabil"])
+    atualizar_snapshot(db, patrimonio, contexto["usuario"].id, FakeContabil(90))
+    assert db.scalar(select(HistoricoContabil).where(HistoricoContabil.campo_alterado == "valor_aquisicao")) is not None
+
+
 def test_patrimonio_baixado_nao_pode_ser_movimentado(client, contexto, db):
     baixado_id = db.scalar(
         select(SituacaoPatrimonial.id).where(SituacaoPatrimonial.codigo == "BAIXADO")
     )
     payload = contexto["payload"] | {
         "situacao_id": baixado_id,
-        "data_baixa": date.today().isoformat(),
     }
     created = client.post("/api/patrimonios", json=payload).json()
     outro_vinculo = db.scalar(
