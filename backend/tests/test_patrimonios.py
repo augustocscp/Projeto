@@ -161,7 +161,7 @@ def test_patrimonio_baixado_nao_pode_ser_movimentado(client, contexto, db):
         },
     )
     assert response.status_code == 409
-    assert response.json()["detail"]["codigo"] == "PATRIMONIO_BAIXADO"
+    assert response.json()["detail"]["codigo"] == "PATRIMONIO_BAIXADO_NAO_MOVIMENTAVEL"
 
 
 def test_numero_tombo_concorrente(migrated_database):

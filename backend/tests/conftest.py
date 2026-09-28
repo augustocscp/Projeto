@@ -112,7 +112,7 @@ def contexto(db: Session) -> dict:
         "codigo_re": responsavel.codigo_re,
         "estado_conservacao_id": id_dominio(EstadoConservacao, "BOM"),
         "situacao_id": id_dominio(SituacaoPatrimonial, "EM_USO"),
-        "destinacao_id": id_dominio(DestinacaoPatrimonial, "USO_INTERNO"),
+        "destinacao_id": id_dominio(DestinacaoPatrimonial, "OPERACAO"),
         "observacao": None,
         "numero_patrimonio_anterior": None,
     }
