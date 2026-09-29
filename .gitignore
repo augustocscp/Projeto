@@ -8,6 +8,7 @@ pytest-cache-files-*/
 *.iml
 
 # Credenciais locais do GCP
+/chave.json
 backend/gcp-credentials*.json
 backend/credentials/*.json
 
