@@ -164,30 +164,15 @@ class _PatrimonioScreenState extends State<PatrimonioScreen> {
     }
   }
 
-  Future<void> _inativar(Map<String, dynamic> item) async {
-    final confirmar = await showDialog<bool>(
+  Future<void> _editar(Map<String, dynamic> item) async {
+    final atualizado = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Inativar patrimônio'),
-        content: Text('Confirma a inativação de ${item['numero_tombo']}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Inativar'),
-          ),
-        ],
-      ),
+      barrierDismissible: false,
+      barrierColor: const Color(0x990B2235),
+      builder: (_) => PatrimonioFormDialog(patrimonio: item),
     );
-    if (confirmar != true) return;
-    try {
-      await ApiService.inativarPatrimonio(item['id'] as int);
+    if (atualizado == true) {
       await _carregar();
-    } catch (error) {
-      if (mounted) _mostrarErro(error);
     }
   }
 
@@ -569,6 +554,8 @@ class _PatrimonioScreenState extends State<PatrimonioScreen> {
             child: ConstrainedBox(
               constraints: BoxConstraints(minWidth: constraints.maxWidth),
               child: DataTable(
+                columnSpacing: 18,
+                horizontalMargin: 14,
                 headingRowColor: WidgetStateProperty.all(
                   const Color(0xFFEAF3F8),
                 ),
@@ -576,18 +563,18 @@ class _PatrimonioScreenState extends State<PatrimonioScreen> {
                   color: Color(0xFF1478B8),
                   fontWeight: FontWeight.w700,
                 ),
-                dataRowMinHeight: 54,
-                dataRowMaxHeight: 58,
+                headingRowHeight: 48,
+                dataRowMinHeight: 50,
+                dataRowMaxHeight: 54,
                 columns: const [
-                  DataColumn(label: Text('Nº Patrimônio')),
-                  DataColumn(label: Text('Cód. do bem')),
-                  DataColumn(label: Text('Descrição')),
-                  DataColumn(label: Text('Empresa')),
+                  DataColumn(label: Text('Nº do Patrimônio')),
+                  DataColumn(label: Text('Cód. Protheus')),
+                  DataColumn(label: Text('Cód. do Item')),
+                  DataColumn(label: Text('Nº da Plaqueta')),
+                  DataColumn(label: Text('Categoria')),
                   DataColumn(label: Text('Filial')),
                   DataColumn(label: Text('Localização')),
                   DataColumn(label: Text('Situação')),
-                  DataColumn(label: Text('Valor atual')),
-                  DataColumn(label: Text('Última atualização')),
                   DataColumn(label: Text('Ações')),
                 ],
                 rows: _itens.map(_linhaTabela).toList(),
@@ -607,41 +594,38 @@ class _PatrimonioScreenState extends State<PatrimonioScreen> {
   );
 
   DataRow _linhaTabela(Map<String, dynamic> item) {
-    final ativo = item['ativo'] as bool? ?? false;
-    final contabil = item['contabil'] as Map<String, dynamic>?;
     return DataRow(
       cells: [
         DataCell(Text(_texto(item['numero_tombo']))),
         DataCell(Text(_texto(item['codigo_protheus']))),
-        DataCell(
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 250),
-            child: Text(
-              _texto(item['descricao']),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ),
-        DataCell(Text(_nomeReferencia(item['empresa']))),
+        DataCell(Text(_texto(item['numero_item']))),
+        DataCell(Text(_texto(item['numero_plaqueta_fisica']))),
+        DataCell(Text(_nomeReferencia(item['categoria']))),
         DataCell(Text(_nomeReferencia(item['filial']))),
         DataCell(Text(_nomeReferencia(item['localizacao']))),
         DataCell(Text(_nomeReferencia(item['situacao']))),
-        DataCell(Text(_formatarMoeda(contabil?['valor_atual']))),
-        DataCell(Text(_formatarData(item['atualizado_em']))),
         DataCell(
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
-                tooltip: 'Ver detalhes',
+                tooltip: 'Visualizar',
                 onPressed: () => _detalhar(item),
                 icon: const Icon(Icons.visibility_outlined),
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints.tightFor(
+                  width: 36,
+                  height: 36,
+                ),
               ),
               IconButton(
-                tooltip: ativo ? 'Inativar' : 'Patrimônio inativo',
-                onPressed: ativo ? () => _inativar(item) : null,
-                icon: Icon(
-                  ativo ? Icons.block_outlined : Icons.check_circle_outline,
+                tooltip: 'Editar',
+                onPressed: () => _editar(item),
+                icon: const Icon(Icons.edit_outlined),
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints.tightFor(
+                  width: 36,
+                  height: 36,
                 ),
               ),
             ],
@@ -701,22 +685,6 @@ class _PatrimonioScreenState extends State<PatrimonioScreen> {
   String _nomeReferencia(Object? valor) {
     if (valor is Map<String, dynamic>) return _texto(valor['nome']);
     return '-';
-  }
-
-  String _formatarData(Object? valor) {
-    final data = DateTime.tryParse(valor?.toString() ?? '');
-    return data == null ? '-' : DateFormat('dd/MM/yyyy').format(data.toLocal());
-  }
-
-  String _formatarMoeda(Object? valor) {
-    if (valor == null) return '-';
-    final numero = valor is num ? valor : num.tryParse(valor.toString());
-    if (numero == null) return '-';
-    return NumberFormat.currency(
-      locale: 'pt_BR',
-      symbol: 'R\$',
-      decimalDigits: 2,
-    ).format(numero);
   }
 }
 

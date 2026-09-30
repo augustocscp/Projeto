@@ -174,6 +174,19 @@ class ApiService {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
+  static Future<Map<String, dynamic>> atualizarPatrimonio(
+    int patrimonioId,
+    Map<String, dynamic> payload,
+  ) async {
+    final response = await _client.patch(
+      Uri.parse('$baseUrl/api/patrimonios/$patrimonioId'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(payload),
+    );
+    if (response.statusCode != 200) throw Exception(_errorMessage(response));
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
   static Future<Map<String, dynamic>> consultarProtheusCadastral(
     String codigo,
     String numeroItem,

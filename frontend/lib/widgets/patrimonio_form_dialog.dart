@@ -40,7 +40,9 @@ String _formatarMoeda(Object? value) {
 }
 
 class PatrimonioFormDialog extends StatefulWidget {
-  const PatrimonioFormDialog({super.key});
+  final Map<String, dynamic>? patrimonio;
+
+  const PatrimonioFormDialog({super.key, this.patrimonio});
 
   @override
   State<PatrimonioFormDialog> createState() => _PatrimonioFormDialogState();
@@ -111,13 +113,23 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
   Map<String, dynamic>? responsavelConsultado;
   String? codigoReConsultado;
 
+  bool get _editando => widget.patrimonio != null;
+
+  DateTime get _dataMinimaGarantia {
+    final cadastro = DateTime.tryParse(
+      widget.patrimonio?['criado_em']?.toString() ?? '',
+    )?.toLocal();
+    final referencia = cadastro ?? DateTime.now();
+    return DateTime(referencia.year, referencia.month, referencia.day);
+  }
+
   List<Map<String, dynamic>> get _destinacoesDisponiveis {
     final situacaoSelecionada = situacoes
         .where((item) => item['id'] == situacaoId)
         .firstOrNull;
     final nomesPermitidos =
         _destinacoesPorSituacao[situacaoSelecionada?['nome']];
-    if (nomesPermitidos == null) return [];
+    if (nomesPermitidos == null) return _editando ? destinacoes : [];
     return destinacoes
         .where((item) => nomesPermitidos.contains(item['nome']))
         .toList();
@@ -139,24 +151,49 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
 
   Future<void> _carregarCatalogos() async {
     try {
+      final patrimonio = widget.patrimonio;
+      final empresaInicial = _referenciaId(patrimonio?['empresa']);
+      final departamentoInicial = _referenciaId(patrimonio?['departamento']);
+      final filialInicial = _referenciaId(patrimonio?['filial']);
       final resultados = await Future.wait([
         ApiService.listarCategorias(),
         ApiService.listarEstadosConservacao(),
         ApiService.listarSituacoes(),
         ApiService.listarDestinacoes(),
         ApiService.listarEmpresas(),
+        empresaInicial == null
+            ? Future.value(<Map<String, dynamic>>[])
+            : ApiService.listarDepartamentos(empresaInicial),
+        empresaInicial == null || departamentoInicial == null
+            ? Future.value(<Map<String, dynamic>>[])
+            : ApiService.listarFiliais(empresaInicial, departamentoInicial),
+        filialInicial == null || departamentoInicial == null
+            ? Future.value(<Map<String, dynamic>>[])
+            : ApiService.listarLocalizacoes(filialInicial, departamentoInicial),
       ]);
       if (!mounted) return;
       setState(() {
         categorias = resultados[0];
         estados = resultados[1];
-        situacoes = resultados[2]
-            .where((item) => _situacoesNovoCadastro.contains(item['nome']))
-            .toList();
-        destinacoes = resultados[3]
-            .where((item) => _destinacoesNovoCadastro.contains(item['nome']))
-            .toList();
+        situacoes = _editando
+            ? resultados[2]
+            : resultados[2]
+                  .where(
+                    (item) => _situacoesNovoCadastro.contains(item['nome']),
+                  )
+                  .toList();
+        destinacoes = _editando
+            ? resultados[3]
+            : resultados[3]
+                  .where(
+                    (item) => _destinacoesNovoCadastro.contains(item['nome']),
+                  )
+                  .toList();
         empresas = resultados[4];
+        departamentos = resultados[5];
+        filiais = resultados[6];
+        localizacoes = resultados[7];
+        if (patrimonio != null) _preencherPatrimonio(patrimonio);
         carregando = false;
       });
     } catch (error) {
@@ -166,6 +203,50 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
         carregando = false;
       });
     }
+  }
+
+  int? _referenciaId(Object? referencia) {
+    if (referencia is! Map<String, dynamic>) return null;
+    return referencia['id'] as int?;
+  }
+
+  void _preencherPatrimonio(Map<String, dynamic> patrimonio) {
+    const campos = [
+      'codigo_protheus',
+      'numero_item',
+      'codigo_sap',
+      'numero_plaqueta_fisica',
+      'descricao',
+      'marca',
+      'modelo',
+      'fabricante',
+      'numero_serie',
+      'observacao',
+    ];
+    for (final campo in campos) {
+      _controllers[campo]!.text = patrimonio[campo]?.toString() ?? '';
+    }
+
+    final responsavel = patrimonio['responsavel'] as Map<String, dynamic>?;
+    final codigoRe = responsavel?['codigo']?.toString() ?? '';
+    _controllers['codigo_re']!.text = codigoRe;
+    categoriaId = _referenciaId(patrimonio['categoria']);
+    estadoId = _referenciaId(patrimonio['estado_conservacao']);
+    situacaoId = _referenciaId(patrimonio['situacao']);
+    destinacaoId = _referenciaId(patrimonio['destinacao']);
+    empresaId = _referenciaId(patrimonio['empresa']);
+    departamentoId = _referenciaId(patrimonio['departamento']);
+    filialId = _referenciaId(patrimonio['filial']);
+    localizacaoId = _referenciaId(patrimonio['localizacao']);
+    final cidade = patrimonio['cidade'] as Map<String, dynamic>?;
+    cidadeSelecionada = cidade?['nome']?.toString() ?? '';
+    possuiGarantia = patrimonio['possui_garantia'] == true;
+    garantia = DateTime.tryParse(
+      patrimonio['data_fim_garantia']?.toString() ?? '',
+    );
+    dadosContabeis = patrimonio['contabil'] as Map<String, dynamic>?;
+    responsavelConsultado = responsavel;
+    codigoReConsultado = codigoRe;
   }
 
   Future<void> _selecionarEmpresa(int? id) async {
@@ -276,10 +357,14 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
       erro = null;
     });
     try {
-      final duplicado = await ApiService.patrimonioProtheusItemJaCadastrado(
-        codigo,
-        item,
-      );
+      final original = widget.patrimonio;
+      final mesmosIdentificadores =
+          original != null &&
+          original['codigo_protheus']?.toString().toUpperCase() == codigo &&
+          original['numero_item']?.toString().toUpperCase() == item;
+      final duplicado = mesmosIdentificadores
+          ? false
+          : await ApiService.patrimonioProtheusItemJaCadastrado(codigo, item);
       if (duplicado) {
         throw Exception(
           'Este Código Protheus e Nº do Item já estão cadastrados.',
@@ -341,13 +426,15 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
   }
 
   Future<void> _selecionarGarantia() async {
-    final agora = DateTime.now();
-    final hoje = DateTime(agora.year, agora.month, agora.day);
+    final dataMinima = _dataMinimaGarantia;
+    final dataInicial = garantia == null || garantia!.isBefore(dataMinima)
+        ? dataMinima
+        : garantia!;
     final data = await showDatePicker(
       context: context,
-      firstDate: hoje,
+      firstDate: dataMinima,
       lastDate: DateTime(2100),
-      initialDate: garantia ?? hoje,
+      initialDate: dataInicial,
     );
     if (data != null) setState(() => garantia = data);
   }
@@ -364,9 +451,9 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
       setState(() => erro = 'Informe a data de fim da garantia.');
       return false;
     }
-    final agora = DateTime.now();
-    final hoje = DateTime(agora.year, agora.month, agora.day);
-    if (etapaAtual == 0 && garantia != null && garantia!.isBefore(hoje)) {
+    if (etapaAtual == 0 &&
+        garantia != null &&
+        garantia!.isBefore(_dataMinimaGarantia)) {
       setState(() {
         erro = 'A data de fim da garantia não pode ser anterior à data do cadastro.';
       });
@@ -437,7 +524,7 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
           codigoRe == null) {
         return;
       }
-      await ApiService.criarPatrimonio({
+      final payload = <String, dynamic>{
         'codigo_protheus': codigoProtheus,
         'numero_item': numeroItem,
         'codigo_sap': opcional('codigo_sap'),
@@ -459,7 +546,15 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
         'situacao_id': situacaoId,
         'destinacao_id': destinacaoId,
         'observacao': opcional('observacao'),
-      });
+      };
+      if (_editando) {
+        await ApiService.atualizarPatrimonio(
+          widget.patrimonio!['id'] as int,
+          payload,
+        );
+      } else {
+        await ApiService.criarPatrimonio(payload);
+      }
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
       if (mounted) {
@@ -1132,22 +1227,24 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
                     size: 28,
                   ),
                   const SizedBox(width: 14),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Novo patrimônio',
-                          style: TextStyle(
+                          _editando ? 'Editar patrimônio' : 'Novo patrimônio',
+                          style: const TextStyle(
                             color: _ink,
                             fontSize: 22,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        SizedBox(height: 3),
+                        const SizedBox(height: 3),
                         Text(
-                          'Cadastre e vincule um novo bem ao controle patrimonial.',
-                          style: TextStyle(color: _muted),
+                          _editando
+                              ? 'Atualize os dados e vínculos do bem selecionado.'
+                              : 'Cadastre e vincule um novo bem ao controle patrimonial.',
+                          style: const TextStyle(color: _muted),
                         ),
                       ],
                     ),
@@ -1246,7 +1343,9 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
                           ),
                     label: Text(
                       etapaAtual == _stepLabels.length - 1
-                          ? 'Salvar patrimônio'
+                          ? (_editando
+                                ? 'Salvar alterações'
+                                : 'Salvar patrimônio')
                           : 'Próxima etapa',
                     ),
                   ),
