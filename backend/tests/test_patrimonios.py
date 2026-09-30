@@ -17,15 +17,82 @@ from app.models.patrimonio import Patrimonio
 from app.services.contabilidade_service import atualizar_snapshot
 from app.schemas.patrimonio import PatrimonioCreate
 from app.services.patrimonio_service import _proximo_numero_tombo
+from app.services.responsavel_service import resolver_responsavel
 
 
 def test_criacao_manual_valida(client, contexto):
-    response = client.post("/api/patrimonios", json=contexto["payload"])
+    payload = contexto["payload"] | {
+        "codigo_protheus": "6003",
+        "numero_item": "2",
+        "numero_plaqueta_fisica": "123",
+        "codigo_re": "123",
+        "numero_serie": None,
+    }
+    response = client.post("/api/patrimonios", json=payload)
     assert response.status_code == 201
     body = response.json()
     assert re.fullmatch(r"PAT-\d{6,}", body["numero_tombo"])
-    assert body["numero_plaqueta_fisica"] == "PLAQ-TESTE-001"
+    assert body["numero_item"] == "0002"
+    assert body["numero_plaqueta_fisica"] == "0000000123"
+    assert body["codigo_protheus"] == "0000006003"
+    assert body["numero_serie"] is None
     assert body["protheus_status"] is None
+
+
+def test_cria_responsavel_consultado_no_protheus(db, monkeypatch):
+    class ProtheusFake:
+        def consultar(self, codigo_re):
+            assert codigo_re == "05360"
+            return {
+                "status": "ativo",
+                "nome": "Responsável Protheus",
+                "cargo": "Coordenador",
+                "departamento_externo": "Administrativo",
+                "gestor_responsavel": "Gestor Externo",
+                "ctt_encontrado": True,
+                "multiplos_current": False,
+            }
+
+    monkeypatch.setattr(
+        "app.services.responsavel_service.GCP_BIGQUERY_ENABLED",
+        True,
+    )
+
+    responsavel = resolver_responsavel(
+        db,
+        "05360",
+        service=ProtheusFake(),
+    )
+
+    assert responsavel.codigo_re == "05360"
+    assert responsavel.gestor_responsavel == "Gestor Externo"
+    assert responsavel.gestor is None
+
+
+def test_filtros_de_localizacao_seguem_empresa_departamento_filial(
+    client,
+    contexto,
+):
+    empresa_id = contexto["payload"]["empresa_id"]
+    departamentos = client.get(
+        f"/api/departamentos?empresa_id={empresa_id}"
+    ).json()
+    departamento_dp = next(
+        item for item in departamentos if item["codigo"] == "DP"
+    )
+
+    response = client.get(
+        "/api/filiais",
+        params={
+            "empresa_id": empresa_id,
+            "departamento_id": departamento_dp["id"],
+        },
+    )
+
+    assert response.status_code == 200
+    filiais = response.json()
+    assert len(filiais) == 1
+    assert "matriz" in filiais[0]["nome"].casefold()
 
 
 def test_categoria_inexistente(client, contexto):
@@ -55,7 +122,7 @@ def test_categoria_inativa_nao_pode_ser_usada(client, contexto, db):
 
 
 def test_responsavel_inexistente(client, contexto):
-    payload = contexto["payload"] | {"codigo_re": "RE-INEXISTENTE"}
+    payload = contexto["payload"] | {"codigo_re": "99999"}
     response = client.post("/api/patrimonios", json=payload)
     assert response.status_code == 503
 

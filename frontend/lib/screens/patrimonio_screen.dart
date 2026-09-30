@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
+import '../widgets/patrimonio_form_dialog.dart';
 
 const _accent = Color(0xFF009CDF);
 
@@ -56,7 +57,8 @@ class _PatrimonioScreenState extends State<PatrimonioScreen> {
     final criado = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const _PatrimonioFormDialog(),
+      barrierColor: const Color(0x990B2235),
+      builder: (_) => const PatrimonioFormDialog(),
     );
     if (criado == true) await _carregar();
   }

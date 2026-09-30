@@ -9,6 +9,36 @@ def texto(valor):
     return resultado or None
 
 
+def normalizar_identificador(valor: str, tamanho: int, nome: str) -> str:
+    codigo = texto(valor)
+    if (
+        codigo is None
+        or not codigo.isascii()
+        or not codigo.isalnum()
+        or len(codigo) > tamanho
+    ):
+        raise ValueError(
+            f"{nome} deve conter de 1 a {tamanho} letras ou numeros"
+        )
+    return codigo.upper().zfill(tamanho)
+
+
+def normalizar_codigo_protheus(valor: str) -> str:
+    return normalizar_identificador(valor, 10, "O codigo Protheus")
+
+
+def normalizar_numero_item(valor: str) -> str:
+    return normalizar_identificador(valor, 4, "O numero do item")
+
+
+def normalizar_numero_plaqueta(valor: str) -> str:
+    return normalizar_identificador(valor, 10, "O numero da plaqueta")
+
+
+def normalizar_codigo_re(valor: str) -> str:
+    return normalizar_identificador(valor, 5, "O codigo RE")
+
+
 def decimal(valor):
     if valor in (None, ""):
         return None

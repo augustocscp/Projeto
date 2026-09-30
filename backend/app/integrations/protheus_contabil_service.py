@@ -1,7 +1,14 @@
 from datetime import datetime, timezone
 from app.config import BIGQUERY_TABLE_SN1, BIGQUERY_TABLE_SN3
 from app.integrations.bigquery_client import BigQueryClient, BigQueryConfigurationError
-from app.integrations.normalizacao import data, decimal, instante, texto
+from app.integrations.normalizacao import (
+    data,
+    decimal,
+    instante,
+    normalizar_codigo_protheus,
+    normalizar_numero_item,
+    texto,
+)
 
 
 class ProtheusContabilService:
@@ -11,6 +18,8 @@ class ProtheusContabilService:
     def consultar(self, codigo_protheus: str, numero_item: str) -> dict | None:
         if not BIGQUERY_TABLE_SN1 or not BIGQUERY_TABLE_SN3:
             raise BigQueryConfigurationError("Tabelas SN1/SN3 não configuradas")
+        codigo_protheus = normalizar_codigo_protheus(codigo_protheus)
+        numero_item = normalizar_numero_item(numero_item)
         sn1_linhas = self.client.consultar_tabela(BIGQUERY_TABLE_SN1,
                                                   {"N1_CBASE": codigo_protheus, "N1_ITEM": numero_item})
         if not sn1_linhas:
@@ -29,7 +38,7 @@ class ProtheusContabilService:
         return {
             "numero_nota_fiscal": texto(sn1.get("N1_NFISCAL")), "serie_nota_fiscal": texto(sn1.get("N1_NSERIE")),
             "data_nota_fiscal": data(sn1.get("N1_AQUISIC")), "codigo_fornecedor": texto(sn1.get("N1_FORNEC")),
-            "fornecedor": texto(sn1.get("N1_LOJA")), "valor_aquisicao": valor_aquisicao,
+            "fornecedor": texto(sn1.get("N1_FORNEC")), "valor_aquisicao": valor_aquisicao,
             "icms": decimal(sn1.get("N1_ICMSAPR")),
             "valor_atual": valor_aquisicao - acumulada if valor_aquisicao is not None and acumulada is not None else None,
             "percentual_depreciacao": decimal(sn3.get("N3_TXDEPR1")),

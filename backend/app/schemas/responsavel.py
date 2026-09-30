@@ -1,18 +1,25 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.integrations.normalizacao import normalizar_codigo_re
 
 
 class ResponsavelCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    codigo_re: str = Field(min_length=1, max_length=50)
+    codigo_re: str = Field(min_length=1, max_length=5)
     nome: str = Field(min_length=1, max_length=255)
     cargo: str | None = Field(default=None, max_length=255)
     departamento_id: int | None = None
     gestor_responsavel_id: int | None = None
     departamento_externo: str | None = Field(default=None, max_length=255)
     gestor_responsavel: str | None = Field(default=None, max_length=255)
+
+    @field_validator("codigo_re")
+    @classmethod
+    def normalizar_re(cls, valor: str) -> str:
+        return normalizar_codigo_re(valor)
 
 
 class ResponsavelUpdate(BaseModel):

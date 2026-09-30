@@ -38,8 +38,8 @@ class Responsavel(Base):
     )
 
     departamento = relationship("Departamento")
-    gestor_responsavel = relationship(
+    gestor = relationship(
         "Responsavel", remote_side="Responsavel.id", back_populates="subordinados"
     )
-    subordinados = relationship("Responsavel", back_populates="gestor_responsavel")
+    subordinados = relationship("Responsavel", back_populates="gestor")
     patrimonios = relationship("Patrimonio", back_populates="responsavel")

@@ -8,6 +8,7 @@ from app.models.responsavel import Responsavel
 from app.config import GCP_BIGQUERY_ENABLED
 from app.integrations.protheus_responsavel_service import ProtheusResponsavelService
 from app.integrations.bigquery_client import BigQueryIntegrationError
+from app.integrations.normalizacao import normalizar_codigo_re
 from app.services.historico_service import registrar_evento
 
 
@@ -40,6 +41,7 @@ def validar_responsavel(db: Session, responsavel_id: int) -> Responsavel:
 def resolver_responsavel(db: Session, codigo_re: str, usuario_id: int | None = None,
                          patrimonio_id: int | None = None,
                          service: ProtheusResponsavelService | None = None) -> Responsavel:
+    codigo_re = normalizar_codigo_re(codigo_re)
     responsavel = db.scalar(select(Responsavel).where(Responsavel.codigo_re == codigo_re))
     if responsavel is not None:
         if not responsavel.ativo:

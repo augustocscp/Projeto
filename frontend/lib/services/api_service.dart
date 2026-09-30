@@ -52,6 +52,21 @@ class ApiService {
     return 'Falha na operação (${response.statusCode})';
   }
 
+  static Map<String, dynamic> _protheusResponse(http.Response response) {
+    if (response.statusCode != 200) throw Exception(_errorMessage(response));
+
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    if (decoded['integracao_ativa'] == false) {
+      throw Exception(
+        'A integração com o Protheus está desativada no backend.',
+      );
+    }
+    if (decoded['encontrado'] == false || decoded['dados'] == null) {
+      throw Exception('Nenhum dado foi encontrado no Protheus.');
+    }
+    return decoded;
+  }
+
   static Future<List<Map<String, dynamic>>> _getList(
     String path, [
     Map<String, String>? query,
@@ -110,11 +125,19 @@ class ApiService {
   static Future<List<Map<String, dynamic>>> listarEmpresas() =>
       _getList('/api/empresas');
 
-  static Future<List<Map<String, dynamic>>> listarFiliais(int empresaId) =>
-      _getList('/api/filiais', {'empresa_id': '$empresaId'});
+  static Future<List<Map<String, dynamic>>> listarFiliais(
+    int empresaId, [
+    int? departamentoId,
+  ]) => _getList('/api/filiais', {
+    'empresa_id': '$empresaId',
+    if (departamentoId != null) 'departamento_id': '$departamentoId',
+  });
 
-  static Future<List<Map<String, dynamic>>> listarDepartamentos() =>
-      _getList('/api/departamentos');
+  static Future<List<Map<String, dynamic>>> listarDepartamentos([
+    int? empresaId,
+  ]) => _getList('/api/departamentos', {
+    if (empresaId != null) 'empresa_id': '$empresaId',
+  });
 
   static Future<List<Map<String, dynamic>>> listarResponsaveis() =>
       _getList('/api/responsaveis');
@@ -148,8 +171,7 @@ class ApiService {
         queryParameters: {'codigo_protheus': codigo, 'numero_item': numeroItem},
       ),
     );
-    if (response.statusCode != 200) throw Exception(_errorMessage(response));
-    return jsonDecode(response.body) as Map<String, dynamic>;
+    return _protheusResponse(response);
   }
 
   static Future<Map<String, dynamic>> consultarProtheusContabil(
@@ -161,8 +183,7 @@ class ApiService {
         queryParameters: {'codigo_protheus': codigo, 'numero_item': numeroItem},
       ),
     );
-    if (response.statusCode != 200) throw Exception(_errorMessage(response));
-    return jsonDecode(response.body) as Map<String, dynamic>;
+    return _protheusResponse(response);
   }
 
   static Future<Map<String, dynamic>> consultarResponsavel(
@@ -172,8 +193,7 @@ class ApiService {
       Uri.parse('$baseUrl/api/responsaveis/protheus')
           .replace(queryParameters: {'codigo_re': codigoRe}),
     );
-    if (response.statusCode != 200) throw Exception(_errorMessage(response));
-    return jsonDecode(response.body) as Map<String, dynamic>;
+    return _protheusResponse(response);
   }
 
   static Future<void> inativarPatrimonio(int patrimonioId) async {

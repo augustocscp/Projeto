@@ -5,6 +5,8 @@ from sqlalchemy import func, inspect, select
 from app.models.categoria_patrimonial import CategoriaPatrimonial
 from app.models.destinacao_patrimonial import DestinacaoPatrimonial
 from app.models.estado_conservacao import EstadoConservacao
+from app.models.filial import Filial
+from app.models.localizacao import Localizacao, LocalizacaoVinculo
 from app.models.situacao_patrimonial import SituacaoPatrimonial
 
 
@@ -38,3 +40,20 @@ def test_seeds_nao_possuem_codigos_duplicados(db):
         total = db.scalar(select(func.count(model.id)))
         distintos = db.scalar(select(func.count(func.distinct(model.codigo))))
         assert total == distintos
+
+
+def test_coordenacao_pertence_ao_escritorio_matriz(db):
+    filiais = db.scalars(
+        select(Filial)
+        .join(LocalizacaoVinculo)
+        .join(Localizacao)
+        .where(Localizacao.nome.ilike("COORDENA%"))
+        .distinct()
+    ).all()
+
+    assert filiais
+    assert all(
+        filial.tipo_unidade == "ESCRITORIO"
+        and "matriz" in filial.nome.casefold()
+        for filial in filiais
+    )

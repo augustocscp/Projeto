@@ -1,33 +1,60 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.integrations.normalizacao import (
+    normalizar_codigo_protheus,
+    normalizar_codigo_re,
+    normalizar_numero_item,
+    normalizar_numero_plaqueta,
+)
 
 
 class PatrimonioCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    codigo_protheus: str = Field(min_length=1, max_length=100)
-    numero_item: str = Field(min_length=1, max_length=100)
+    codigo_protheus: str = Field(min_length=1, max_length=10)
+    numero_item: str = Field(min_length=1, max_length=4)
     codigo_sap: str | None = Field(default=None, max_length=100)
-    numero_plaqueta_fisica: str = Field(min_length=1, max_length=100)
+    numero_plaqueta_fisica: str = Field(min_length=1, max_length=10)
     descricao: str | None = Field(default=None, min_length=1)
     categoria_id: int
     marca: str | None = Field(default=None, max_length=255)
     modelo: str | None = Field(default=None, max_length=255)
     fabricante: str | None = Field(default=None, max_length=255)
-    numero_serie: str = Field(min_length=1, max_length=255)
+    numero_serie: str | None = Field(default=None, max_length=255)
     possui_garantia: bool
     data_fim_garantia: date | None = None
     empresa_id: int
     filial_id: int
     departamento_id: int
     localizacao_id: int
-    codigo_re: str = Field(min_length=1, max_length=50)
+    codigo_re: str = Field(min_length=1, max_length=5)
     estado_conservacao_id: int
     situacao_id: int
     destinacao_id: int
     observacao: str | None = Field(default=None, max_length=1000)
     numero_patrimonio_anterior: str | None = Field(default=None, max_length=100)
+
+    @field_validator("codigo_protheus")
+    @classmethod
+    def normalizar_codigo(cls, valor: str) -> str:
+        return normalizar_codigo_protheus(valor)
+
+    @field_validator("numero_item")
+    @classmethod
+    def normalizar_item(cls, valor: str) -> str:
+        return normalizar_numero_item(valor)
+
+    @field_validator("numero_plaqueta_fisica")
+    @classmethod
+    def normalizar_plaqueta(cls, valor: str) -> str:
+        return normalizar_numero_plaqueta(valor)
+
+    @field_validator("codigo_re")
+    @classmethod
+    def normalizar_re(cls, valor: str) -> str:
+        return normalizar_codigo_re(valor)
 
     @model_validator(mode="after")
     def validar_garantia(self):
@@ -39,10 +66,10 @@ class PatrimonioCreate(BaseModel):
 class PatrimonioUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    codigo_protheus: str | None = Field(default=None, min_length=1, max_length=100)
-    numero_item: str | None = Field(default=None, min_length=1, max_length=100)
+    codigo_protheus: str | None = Field(default=None, min_length=1, max_length=10)
+    numero_item: str | None = Field(default=None, min_length=1, max_length=4)
     codigo_sap: str | None = Field(default=None, max_length=100)
-    numero_plaqueta_fisica: str | None = Field(default=None, min_length=1, max_length=100)
+    numero_plaqueta_fisica: str | None = Field(default=None, min_length=1, max_length=10)
     descricao: str | None = Field(default=None, min_length=1)
     categoria_id: int | None = None
     marca: str | None = Field(default=None, max_length=255)
@@ -55,12 +82,32 @@ class PatrimonioUpdate(BaseModel):
     filial_id: int | None = None
     departamento_id: int | None = None
     localizacao_id: int | None = None
-    codigo_re: str | None = Field(default=None, min_length=1, max_length=50)
+    codigo_re: str | None = Field(default=None, min_length=1, max_length=5)
     estado_conservacao_id: int | None = None
     situacao_id: int | None = None
     destinacao_id: int | None = None
     observacao: str | None = Field(default=None, max_length=1000)
     numero_patrimonio_anterior: str | None = Field(default=None, max_length=100)
+
+    @field_validator("codigo_protheus")
+    @classmethod
+    def normalizar_codigo(cls, valor: str | None) -> str | None:
+        return None if valor is None else normalizar_codigo_protheus(valor)
+
+    @field_validator("numero_item")
+    @classmethod
+    def normalizar_item(cls, valor: str | None) -> str | None:
+        return None if valor is None else normalizar_numero_item(valor)
+
+    @field_validator("numero_plaqueta_fisica")
+    @classmethod
+    def normalizar_plaqueta(cls, valor: str | None) -> str | None:
+        return None if valor is None else normalizar_numero_plaqueta(valor)
+
+    @field_validator("codigo_re")
+    @classmethod
+    def normalizar_re(cls, valor: str | None) -> str | None:
+        return None if valor is None else normalizar_codigo_re(valor)
 
 
 class ReferenciaResponse(BaseModel):

@@ -1,5 +1,11 @@
 from app.integrations.protheus_contabil_service import ProtheusContabilService
 from app.integrations.protheus_responsavel_service import ProtheusResponsavelService
+from app.integrations.normalizacao import (
+    normalizar_codigo_protheus,
+    normalizar_codigo_re,
+    normalizar_numero_item,
+    normalizar_numero_plaqueta,
+)
 from fastapi.testclient import TestClient
 from app.auth import get_current_user
 from app.main import app
@@ -12,7 +18,14 @@ class FakeClient:
     def consultar_tabela(self, tabela, filtros):
         self.chamadas.append((tabela, filtros))
         if "SN1" in tabela:
-            return [{"N1_VLAQUIS": "100", "N1_BAIXA": ""}]
+            return [
+                {
+                    "N1_VLAQUIS": "100",
+                    "N1_BAIXA": "",
+                    "N1_FORNEC": "FORNECEDOR-01",
+                    "N1_LOJA": "0001",
+                }
+            ]
         if "SN3" in tabela:
             return [{"N3_TIPO": "10", "N3_VRDACM1": "20"}]
         if "funcionarios" in tabela:
@@ -26,7 +39,16 @@ def test_contabil_sempre_filtra_tipo_10(monkeypatch):
     client = FakeClient()
     resultado = ProtheusContabilService(client).consultar("1", "2")
     assert resultado["valor_atual"] == 80
-    assert client.chamadas[1][1] == {"N3_CBASE": "1", "N3_ITEM": "2", "N3_TIPO": "10"}
+    assert resultado["fornecedor"] == "FORNECEDOR-01"
+    assert client.chamadas[1][1] == {"N3_CBASE": "0000000001", "N3_ITEM": "0002", "N3_TIPO": "10"}
+
+
+def test_codigo_protheus_completa_zeros_a_esquerda():
+    assert normalizar_codigo_protheus("6003") == "0000006003"
+    assert normalizar_codigo_protheus("sp30001071") == "SP30001071"
+    assert normalizar_numero_item("2") == "0002"
+    assert normalizar_numero_plaqueta("123") == "0000000123"
+    assert normalizar_codigo_re("123") == "00123"
 
 
 def test_responsavel_sempre_filtra_current_e_ativo(monkeypatch):
@@ -35,7 +57,7 @@ def test_responsavel_sempre_filtra_current_e_ativo(monkeypatch):
     client = FakeClient()
     resultado = ProtheusResponsavelService(client).consultar("123")
     assert resultado["gestor_responsavel"] == "  NOME DO GESTOR  "
-    assert client.chamadas[0][1] == {"MATRICULA": "123", "IS_CURRENT": True, "CODSITUACAO": "A"}
+    assert client.chamadas[0][1] == {"MATRICULA": "00123", "IS_CURRENT": True, "CODSITUACAO": "A"}
 
 
 def test_responsavel_inativo_usa_consulta_diagnostica(monkeypatch):
@@ -52,7 +74,7 @@ def test_responsavel_inativo_usa_consulta_diagnostica(monkeypatch):
     client = InativoClient()
     resultado = ProtheusResponsavelService(client).consultar("123")
     assert resultado == {"status": "inativo", "multiplos_current": True}
-    assert client.chamadas[1] == {"MATRICULA": "123", "IS_CURRENT": True}
+    assert client.chamadas[1] == {"MATRICULA": "00123", "IS_CURRENT": True}
 
 
 def test_endpoints_exploratorios_integracao_desativada():

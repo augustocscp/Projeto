@@ -204,7 +204,7 @@ def atualizar_patrimonio(
     if not alteracoes:
         return patrimonio
 
-    for campo in ("codigo_protheus", "numero_item", "numero_serie"):
+    for campo in ("codigo_protheus", "numero_item"):
         if campo in alteracoes and alteracoes[campo] is None:
             raise api_error(422, "CAMPO_OBRIGATORIO", "Campo obrigatório não pode ser nulo.", [campo])
 

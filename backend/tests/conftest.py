@@ -75,7 +75,7 @@ def contexto(db: Session) -> dict:
     )
     departamento = db.get(Departamento, vinculo.departamento_id)
     responsavel = Responsavel(
-        codigo_re="RE-TESTE",
+        codigo_re="00123",
         nome="Responsável Teste",
         cargo="Teste",
         departamento_id=departamento.id,
@@ -93,10 +93,10 @@ def contexto(db: Session) -> dict:
     from app.models.situacao_patrimonial import SituacaoPatrimonial
 
     payload = {
-        "codigo_protheus": "BASE-TESTE",
+        "codigo_protheus": "0000006003",
         "numero_item": "0001",
         "codigo_sap": None,
-        "numero_plaqueta_fisica": "PLAQ-TESTE-001",
+        "numero_plaqueta_fisica": "PLAQ000001",
         "descricao": "Patrimônio de teste",
         "categoria_id": categoria.id,
         "marca": None,

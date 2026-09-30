@@ -1,6 +1,10 @@
 from app.config import BIGQUERY_TABLE_SB1, BIGQUERY_TABLE_SN1
 from app.integrations.bigquery_client import BigQueryClient, BigQueryConfigurationError
-from app.integrations.normalizacao import texto
+from app.integrations.normalizacao import (
+    normalizar_codigo_protheus,
+    normalizar_numero_item,
+    texto,
+)
 
 
 class ProtheusPatrimonioService:
@@ -10,6 +14,8 @@ class ProtheusPatrimonioService:
     def consultar(self, codigo_protheus: str, numero_item: str) -> dict | None:
         if not BIGQUERY_TABLE_SN1 or not BIGQUERY_TABLE_SB1:
             raise BigQueryConfigurationError("Tabelas SN1/SB1 não configuradas")
+        codigo_protheus = normalizar_codigo_protheus(codigo_protheus)
+        numero_item = normalizar_numero_item(numero_item)
         linhas = self.client.consultar_tabela(BIGQUERY_TABLE_SN1, {"N1_CBASE": codigo_protheus, "N1_ITEM": numero_item})
         if not linhas:
             return None

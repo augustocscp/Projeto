@@ -1,6 +1,6 @@
 from app.config import BIGQUERY_TABLE_CTT, BIGQUERY_TABLE_FUNCIONARIOS
 from app.integrations.bigquery_client import BigQueryClient, BigQueryConfigurationError
-from app.integrations.normalizacao import texto
+from app.integrations.normalizacao import normalizar_codigo_re, texto
 
 
 def _texto_livre(valor):
@@ -14,6 +14,7 @@ class ProtheusResponsavelService:
     def consultar(self, codigo_re: str) -> dict:
         if not BIGQUERY_TABLE_FUNCIONARIOS or not BIGQUERY_TABLE_CTT:
             raise BigQueryConfigurationError("Tabelas de responsáveis não configuradas")
+        codigo_re = normalizar_codigo_re(codigo_re)
         ativos = self.client.consultar_tabela(BIGQUERY_TABLE_FUNCIONARIOS,
                                               {"MATRICULA": codigo_re, "IS_CURRENT": True, "CODSITUACAO": "A"})
         if not ativos:

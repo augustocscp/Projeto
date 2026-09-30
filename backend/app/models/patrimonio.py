@@ -61,7 +61,7 @@ class Patrimonio(Base):
     marca: Mapped[str | None] = mapped_column(String(255), nullable=True)
     modelo: Mapped[str | None] = mapped_column(String(255), nullable=True)
     fabricante: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    numero_serie: Mapped[str] = mapped_column(String(255))
+    numero_serie: Mapped[str | None] = mapped_column(String(255), nullable=True)
     possui_garantia: Mapped[bool] = mapped_column(Boolean)
     codigo_produto: Mapped[str | None] = mapped_column(String(100), nullable=True)
     data_fim_garantia: Mapped[date | None] = mapped_column(Date, nullable=True)

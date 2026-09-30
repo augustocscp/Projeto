@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,6 +16,7 @@ from app.models.destinacao_patrimonial import DestinacaoPatrimonial
 from app.models.empresa import Empresa
 from app.models.estado_conservacao import EstadoConservacao
 from app.models.filial import Filial
+from app.models.localizacao import LocalizacaoVinculo
 from app.models.situacao_patrimonial import SituacaoPatrimonial
 from app.schemas.categoria_patrimonial import CategoriaPatrimonialResponse
 from app.schemas.destinacao_patrimonial import DestinacaoPatrimonialResponse
@@ -30,7 +33,13 @@ router = APIRouter(
 
 
 @router.get("/api/responsaveis/protheus")
-def responsavel_protheus(codigo_re: str, db: Session = Depends(get_db)):
+def responsavel_protheus(
+    codigo_re: Annotated[
+        str,
+        Query(min_length=1, max_length=5, pattern=r"^[A-Za-z0-9]+$"),
+    ],
+    db: Session = Depends(get_db),
+):
     if not GCP_BIGQUERY_ENABLED:
         return {"integracao_ativa": False, "encontrado": False, "dados": None}
     try:
@@ -115,12 +124,22 @@ def empresas(ativo: bool | None = True, db: Session = Depends(get_db)):
 @router.get("/api/filiais")
 def filiais(
         empresa_id: int | None = None,
+        departamento_id: int | None = None,
         ativo: bool | None = True,
         db: Session = Depends(get_db),
 ):
     stmt = select(Filial).order_by(Filial.nome)
     if empresa_id is not None:
         stmt = stmt.where(Filial.empresa_id == empresa_id)
+    if departamento_id is not None:
+        stmt = (
+            stmt.join(LocalizacaoVinculo)
+            .where(
+                LocalizacaoVinculo.departamento_id == departamento_id,
+                LocalizacaoVinculo.ativo.is_(True),
+            )
+            .distinct()
+        )
     if ativo is not None:
         stmt = stmt.where(Filial.ativo.is_(ativo))
     return [
@@ -138,8 +157,23 @@ def filiais(
 
 
 @router.get("/api/departamentos")
-def departamentos(ativo: bool | None = True, db: Session = Depends(get_db)):
+def departamentos(
+        empresa_id: int | None = None,
+        ativo: bool | None = True,
+        db: Session = Depends(get_db),
+):
     stmt = select(Departamento).order_by(Departamento.nome)
+    if empresa_id is not None:
+        stmt = (
+            stmt.join(LocalizacaoVinculo)
+            .join(Filial, Filial.id == LocalizacaoVinculo.filial_id)
+            .where(
+                Filial.empresa_id == empresa_id,
+                Filial.ativo.is_(True),
+                LocalizacaoVinculo.ativo.is_(True),
+            )
+            .distinct()
+        )
     if ativo is not None:
         stmt = stmt.where(Departamento.ativo.is_(ativo))
     return [_referencia(item) for item in db.scalars(stmt).all()]

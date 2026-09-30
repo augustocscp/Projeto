@@ -33,8 +33,18 @@ router = APIRouter(tags=["patrimonios"])
 
 
 @router.get("/api/patrimonios/protheus-cadastral")
-def consultar_protheus_cadastral(codigo_protheus: str, numero_item: str, user=Depends(get_current_user),
-                                 db: Session = Depends(get_db)):
+def consultar_protheus_cadastral(
+    codigo_protheus: Annotated[
+        str,
+        Query(min_length=1, max_length=10, pattern=r"^[A-Za-z0-9]+$"),
+    ],
+    numero_item: Annotated[
+        str,
+        Query(min_length=1, max_length=4, pattern=r"^[A-Za-z0-9]+$"),
+    ],
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     if not GCP_BIGQUERY_ENABLED:
         return {"integracao_ativa": False, "encontrado": False, "dados": None}
     try:
@@ -49,8 +59,18 @@ def consultar_protheus_cadastral(codigo_protheus: str, numero_item: str, user=De
 
 
 @router.get("/api/patrimonios/protheus-contabil")
-def consultar_protheus_contabil(codigo_protheus: str, numero_item: str, user=Depends(get_current_user),
-                                db: Session = Depends(get_db)):
+def consultar_protheus_contabil(
+    codigo_protheus: Annotated[
+        str,
+        Query(min_length=1, max_length=10, pattern=r"^[A-Za-z0-9]+$"),
+    ],
+    numero_item: Annotated[
+        str,
+        Query(min_length=1, max_length=4, pattern=r"^[A-Za-z0-9]+$"),
+    ],
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     if not GCP_BIGQUERY_ENABLED:
         return {"integracao_ativa": False, "encontrado": False, "dados": None}
     try:
