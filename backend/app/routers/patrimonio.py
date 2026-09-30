@@ -23,8 +23,13 @@ from app.services.patrimonio_service import (
     listar_patrimonios,
     obter_patrimonio,
     patrimonio_response,
+    patrimonio_protheus_item_existe,
     resumo_patrimonial,
     contabil_response,
+)
+from app.integrations.normalizacao import (
+    normalizar_codigo_protheus,
+    normalizar_numero_item,
 )
 from app.services.contabilidade_service import atualizar_snapshot
 from app.services.historico_service import historico_agregado, registrar_evento
@@ -32,18 +37,36 @@ from app.services.historico_service import historico_agregado, registrar_evento
 router = APIRouter(tags=["patrimonios"])
 
 
+@router.get("/api/patrimonios/verificar-duplicidade")
+def verificar_duplicidade(
+        codigo_protheus: Annotated[
+            str,
+            Query(min_length=1, max_length=10, pattern=r"^[A-Za-z0-9]+$"),
+        ],
+        numero_item: Annotated[
+            str,
+            Query(min_length=1, max_length=4, pattern=r"^[A-Za-z0-9]+$"),
+        ],
+        user=Depends(get_current_user),
+        db: Session = Depends(get_db),
+):
+    codigo = normalizar_codigo_protheus(codigo_protheus)
+    item = normalizar_numero_item(numero_item)
+    return {"duplicado": patrimonio_protheus_item_existe(db, codigo, item)}
+
+
 @router.get("/api/patrimonios/protheus-cadastral")
 def consultar_protheus_cadastral(
-    codigo_protheus: Annotated[
-        str,
-        Query(min_length=1, max_length=10, pattern=r"^[A-Za-z0-9]+$"),
-    ],
-    numero_item: Annotated[
-        str,
-        Query(min_length=1, max_length=4, pattern=r"^[A-Za-z0-9]+$"),
-    ],
-    user=Depends(get_current_user),
-    db: Session = Depends(get_db),
+        codigo_protheus: Annotated[
+            str,
+            Query(min_length=1, max_length=10, pattern=r"^[A-Za-z0-9]+$"),
+        ],
+        numero_item: Annotated[
+            str,
+            Query(min_length=1, max_length=4, pattern=r"^[A-Za-z0-9]+$"),
+        ],
+        user=Depends(get_current_user),
+        db: Session = Depends(get_db),
 ):
     if not GCP_BIGQUERY_ENABLED:
         return {"integracao_ativa": False, "encontrado": False, "dados": None}
@@ -60,16 +83,16 @@ def consultar_protheus_cadastral(
 
 @router.get("/api/patrimonios/protheus-contabil")
 def consultar_protheus_contabil(
-    codigo_protheus: Annotated[
-        str,
-        Query(min_length=1, max_length=10, pattern=r"^[A-Za-z0-9]+$"),
-    ],
-    numero_item: Annotated[
-        str,
-        Query(min_length=1, max_length=4, pattern=r"^[A-Za-z0-9]+$"),
-    ],
-    user=Depends(get_current_user),
-    db: Session = Depends(get_db),
+        codigo_protheus: Annotated[
+            str,
+            Query(min_length=1, max_length=10, pattern=r"^[A-Za-z0-9]+$"),
+        ],
+        numero_item: Annotated[
+            str,
+            Query(min_length=1, max_length=4, pattern=r"^[A-Za-z0-9]+$"),
+        ],
+        user=Depends(get_current_user),
+        db: Session = Depends(get_db),
 ):
     if not GCP_BIGQUERY_ENABLED:
         return {"integracao_ativa": False, "encontrado": False, "dados": None}
@@ -93,6 +116,7 @@ def listar(
         numero_tombo: str | None = None,
         codigo_protheus: str | None = None,
         numero_plaqueta_fisica: str | None = None,
+        descricao: str | None = None,
         situacao_id: int | None = None,
         categoria_id: int | None = None,
         filial_id: int | None = None,
@@ -109,6 +133,7 @@ def listar(
             "numero_tombo": numero_tombo,
             "codigo_protheus": codigo_protheus,
             "numero_plaqueta_fisica": numero_plaqueta_fisica,
+            "descricao": descricao,
             "situacao_id": situacao_id,
             "categoria_id": categoria_id,
             "filial_id": filial_id,

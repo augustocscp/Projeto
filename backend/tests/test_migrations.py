@@ -3,6 +3,7 @@ import os
 from sqlalchemy import func, inspect, select
 
 from app.models.categoria_patrimonial import CategoriaPatrimonial
+from app.models.departamento import Departamento
 from app.models.destinacao_patrimonial import DestinacaoPatrimonial
 from app.models.estado_conservacao import EstadoConservacao
 from app.models.filial import Filial
@@ -26,16 +27,89 @@ def test_migrations_criam_estrutura_e_seeds(db):
         "historico_sistema",
     } <= tabelas
     assert db.scalar(select(func.count(CategoriaPatrimonial.id))) == 7
-    assert db.scalar(select(func.count(EstadoConservacao.id))) == 6
-    assert db.scalar(select(func.count(SituacaoPatrimonial.id))) == 9
-    assert db.scalar(select(func.count(DestinacaoPatrimonial.id))) == 10
+    estados_ativos = db.scalars(
+        select(EstadoConservacao)
+        .where(EstadoConservacao.ativo.is_(True))
+        .order_by(EstadoConservacao.ordem_exibicao)
+    ).all()
+    assert [estado.nome for estado in estados_ativos] == [
+        "Ótimo",
+        "Bom",
+        "Regular",
+        "Ruim",
+        "Danificado",
+        "Não avaliado",
+    ]
+    assert not db.scalars(
+        select(EstadoConservacao).where(
+            EstadoConservacao.nome.in_(("Novo", "Inservível"))
+        )
+    ).all()
+    assert db.scalar(select(func.count(SituacaoPatrimonial.id))) == 7
+    assert not db.scalars(
+        select(SituacaoPatrimonial).where(
+            SituacaoPatrimonial.nome.in_(("Ativo", "Em Transferência"))
+        )
+    ).all()
+    destinacoes_ativas = db.scalars(
+        select(DestinacaoPatrimonial)
+        .where(DestinacaoPatrimonial.ativo.is_(True))
+        .order_by(DestinacaoPatrimonial.ordem_exibicao)
+    ).all()
+    assert [destinacao.nome for destinacao in destinacoes_ativas] == [
+        "Operacional",
+        "Administrativo",
+        "Almoxarifado",
+        "Reserva Técnica",
+        "Manutenção",
+        "Treinamento",
+        "Locado",
+        "Comodato",
+        "Descarte",
+        "Venda",
+        "Doação",
+    ]
+
+    colunas_por_tabela = {
+        tabela: {
+            coluna["name"]
+            for coluna in inspect(db.get_bind()).get_columns(
+                tabela, schema=os.environ["DATABASE_SCHEMA"]
+            )
+        }
+        for tabela in (
+            "categorias_patrimoniais",
+            "cidades",
+            "departamentos",
+            "destinacoes_patrimoniais",
+            "empresas",
+            "estados_conservacao",
+            "filiais",
+        )
+    }
+    assert {"codigo", "descricao"}.isdisjoint(
+        colunas_por_tabela["categorias_patrimoniais"]
+    )
+    assert "codigo_ibge" not in colunas_por_tabela["cidades"]
+    assert "codigo" not in colunas_por_tabela["departamentos"]
+    assert {"codigo", "descricao"}.isdisjoint(
+        colunas_por_tabela["destinacoes_patrimoniais"]
+    )
+    assert "descricao" not in colunas_por_tabela["empresas"]
+    assert "descricao" not in colunas_por_tabela["estados_conservacao"]
+    assert "codigo" not in colunas_por_tabela["filiais"]
+
+    assert db.scalar(select(func.count(Departamento.id))) == 17
+    assert all(
+        departamento.descricao
+        for departamento in db.scalars(select(Departamento)).all()
+    )
 
 
 def test_seeds_nao_possuem_codigos_duplicados(db):
     for model in (
         EstadoConservacao,
         SituacaoPatrimonial,
-        DestinacaoPatrimonial,
     ):
         total = db.scalar(select(func.count(model.id)))
         distintos = db.scalar(select(func.count(func.distinct(model.codigo))))

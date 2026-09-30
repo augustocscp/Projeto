@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import re
 
 from sqlalchemy import select
@@ -38,6 +38,13 @@ def test_criacao_manual_valida(client, contexto):
     assert body["numero_serie"] is None
     assert body["protheus_status"] is None
 
+    filtrado = client.get(
+        "/api/patrimonios",
+        params={"descricao": "patrimônio de teste"},
+    )
+    assert filtrado.status_code == 200
+    assert filtrado.json()["total"] == 1
+
 
 def test_cria_responsavel_consultado_no_protheus(db, monkeypatch):
     class ProtheusFake:
@@ -70,16 +77,14 @@ def test_cria_responsavel_consultado_no_protheus(db, monkeypatch):
 
 
 def test_filtros_de_localizacao_seguem_empresa_departamento_filial(
-    client,
-    contexto,
+        client,
+        contexto,
 ):
     empresa_id = contexto["payload"]["empresa_id"]
     departamentos = client.get(
         f"/api/departamentos?empresa_id={empresa_id}"
     ).json()
-    departamento_dp = next(
-        item for item in departamentos if item["codigo"] == "DP"
-    )
+    departamento_dp = next(item for item in departamentos if item["nome"] == "DP")
 
     response = client.get(
         "/api/filiais",
@@ -143,10 +148,48 @@ def test_garantia_false_rejeita_data(client, contexto):
     assert response.status_code == 422
 
 
+def test_garantia_nao_pode_ser_anterior_ao_cadastro(client, contexto):
+    response = client.post(
+        "/api/patrimonios",
+        json=contexto["payload"]
+             | {
+                 "possui_garantia": True,
+                 "data_fim_garantia": (date.today() - timedelta(days=1)).isoformat(),
+             },
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["codigo"] == "GARANTIA_ANTERIOR_CADASTRO"
+
+
 def test_plaqueta_duplicada(client, contexto):
     assert client.post("/api/patrimonios", json=contexto["payload"]).status_code == 201
-    response = client.post("/api/patrimonios", json=contexto["payload"])
+    response = client.post(
+        "/api/patrimonios",
+        json=contexto["payload"] | {"numero_item": "0002"},
+    )
     assert response.status_code == 409
+    assert response.json()["detail"]["codigo"] == "PLAQUETA_DUPLICADA"
+
+
+def test_codigo_protheus_e_item_duplicados(client, contexto):
+    assert client.post("/api/patrimonios", json=contexto["payload"]).status_code == 201
+
+    consulta = client.get(
+        "/api/patrimonios/verificar-duplicidade",
+        params={
+            "codigo_protheus": contexto["payload"]["codigo_protheus"],
+            "numero_item": contexto["payload"]["numero_item"],
+        },
+    )
+    assert consulta.status_code == 200
+    assert consulta.json() == {"duplicado": True}
+
+    response = client.post(
+        "/api/patrimonios",
+        json=contexto["payload"] | {"numero_plaqueta_fisica": "PLAQ000002"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["codigo"] == "PROTHEUS_ITEM_DUPLICADO"
 
 
 def test_consulta_inexistente(client):

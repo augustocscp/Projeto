@@ -61,12 +61,14 @@ def responsavel_protheus(
 
 
 def _referencia(registro, codigo_attr: str = "codigo") -> dict:
-    return {
+    referencia = {
         "id": registro.id,
-        "codigo": getattr(registro, codigo_attr, None),
         "nome": registro.nome,
         "ativo": registro.ativo,
     }
+    if hasattr(registro, codigo_attr):
+        referencia["codigo"] = getattr(registro, codigo_attr)
+    return referencia
 
 
 @router.get(
@@ -176,7 +178,10 @@ def departamentos(
         )
     if ativo is not None:
         stmt = stmt.where(Departamento.ativo.is_(ativo))
-    return [_referencia(item) for item in db.scalars(stmt).all()]
+    return [
+        _referencia(item) | {"descricao": item.descricao}
+        for item in db.scalars(stmt).all()
+    ]
 
 
 @router.get("/api/responsaveis", response_model=list[ResponsavelResponse])

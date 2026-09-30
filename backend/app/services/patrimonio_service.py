@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from math import ceil
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
@@ -57,6 +58,52 @@ def _validar_dominio(db: Session, model, identificador: int, campo: str):
 
 
 SITUACOES_BAIXA = {"BAIXADO", "ALIENADO", "EXTRAVIADO", "SINISTRADO"}
+FUSO_HORARIO_LOCAL = ZoneInfo("America/Sao_Paulo")
+
+
+def patrimonio_protheus_item_existe(
+        db: Session,
+        codigo_protheus: str,
+        numero_item: str,
+        excluir_id: int | None = None,
+) -> bool:
+    stmt = select(Patrimonio.id).where(
+        Patrimonio.codigo_protheus == codigo_protheus,
+        Patrimonio.numero_item == numero_item,
+    )
+    if excluir_id is not None:
+        stmt = stmt.where(Patrimonio.id != excluir_id)
+    return db.scalar(stmt) is not None
+
+
+def _validar_protheus_item_unico(
+        db: Session,
+        codigo_protheus: str,
+        numero_item: str,
+        excluir_id: int | None = None,
+) -> None:
+    if patrimonio_protheus_item_existe(
+            db, codigo_protheus, numero_item, excluir_id
+    ):
+        raise api_error(
+            409,
+            "PROTHEUS_ITEM_DUPLICADO",
+            "Este Código Protheus e Nº do Item já estão cadastrados.",
+            ["codigo_protheus", "numero_item"],
+        )
+
+
+def _validar_data_garantia(data_garantia, data_cadastro: datetime) -> None:
+    if data_garantia is None:
+        return
+    data_minima = data_cadastro.astimezone(FUSO_HORARIO_LOCAL).date()
+    if data_garantia < data_minima:
+        raise api_error(
+            422,
+            "GARANTIA_ANTERIOR_CADASTRO",
+            "A data de fim da garantia não pode ser anterior à data do cadastro.",
+            ["data_fim_garantia"],
+        )
 
 
 def _validar_baixa(situacao: SituacaoPatrimonial, data_baixa_origem) -> None:
@@ -119,6 +166,11 @@ def criar_patrimonio(
         db: Session, payload: PatrimonioCreate, usuario_id: int
 ) -> Patrimonio:
     dados = payload.model_dump()
+    agora = datetime.now(timezone.utc)
+    _validar_data_garantia(dados.get("data_fim_garantia"), agora)
+    _validar_protheus_item_unico(
+        db, dados["codigo_protheus"], dados["numero_item"]
+    )
     codigo_re = dados.pop("codigo_re")
     responsavel = resolver_responsavel(db, codigo_re, usuario_id)
     dados["responsavel_id"] = responsavel.id
@@ -155,7 +207,6 @@ def criar_patrimonio(
             ["numero_plaqueta_fisica"],
         )
 
-    agora = datetime.now(timezone.utc)
     patrimonio = Patrimonio(
         **dados,
         numero_tombo=_proximo_numero_tombo(db),
@@ -246,6 +297,13 @@ def atualizar_patrimonio(
     if garantia != (data_garantia is not None):
         raise api_error(422, "GARANTIA_INVALIDA", "Data de garantia inconsistente com possui_garantia.",
                         ["possui_garantia", "data_fim_garantia"])
+    _validar_data_garantia(data_garantia, patrimonio.data_cadastro)
+
+    codigo_protheus = alteracoes.get("codigo_protheus", patrimonio.codigo_protheus)
+    numero_item = alteracoes.get("numero_item", patrimonio.numero_item)
+    _validar_protheus_item_unico(
+        db, codigo_protheus, numero_item, excluir_id=patrimonio.id
+    )
 
     if alteracoes.get("numero_plaqueta_fisica") is None and "numero_plaqueta_fisica" in alteracoes:
         raise api_error(422, "PLAQUETA_OBRIGATORIA", "A plaqueta física é obrigatória.", ["numero_plaqueta_fisica"])
@@ -301,7 +359,12 @@ def listar_patrimonios(
     ):
         if filtros.get(campo) is not None:
             criterios.append(getattr(Patrimonio, campo) == filtros[campo])
-    for campo in ("numero_tombo", "codigo_protheus", "numero_plaqueta_fisica"):
+    for campo in (
+        "numero_tombo",
+        "codigo_protheus",
+        "numero_plaqueta_fisica",
+        "descricao",
+    ):
         if filtros.get(campo):
             criterios.append(getattr(Patrimonio, campo).ilike(f"%{filtros[campo]}%"))
 
@@ -353,11 +416,13 @@ def resumo_patrimonial(db: Session) -> dict:
 
 def patrimonio_response(patrimonio: Patrimonio) -> dict:
     def referencia(objeto, codigo_attr: str = "codigo") -> dict:
-        return {
+        resultado = {
             "id": objeto.id,
             "nome": objeto.nome,
-            "codigo": getattr(objeto, codigo_attr, None),
         }
+        if hasattr(objeto, codigo_attr):
+            resultado["codigo"] = getattr(objeto, codigo_attr)
+        return resultado
 
     return {
         "id": patrimonio.id,

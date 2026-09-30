@@ -37,6 +37,12 @@ class Patrimonio(Base):
             "(NOT possui_garantia AND data_fim_garantia IS NULL)",
             name="ck_patrimonios_garantia_data",
         ),
+        CheckConstraint(
+            "data_fim_garantia IS NULL OR "
+            "data_fim_garantia >= "
+            "(data_cadastro AT TIME ZONE 'America/Sao_Paulo')::date",
+            name="ck_patrimonios_garantia_data_cadastro",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)

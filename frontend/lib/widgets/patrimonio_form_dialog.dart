@@ -7,6 +7,17 @@ import '../services/api_service.dart';
 const _accent = Color(0xFF009CDF);
 const _ink = Color(0xFF17364D);
 const _muted = Color(0xFF6E8290);
+const _situacoesNovoCadastro = {'Em Uso', 'Disponível'};
+const _destinacoesNovoCadastro = {
+  'Operacional',
+  'Administrativo',
+  'Almoxarifado',
+  'Reserva Técnica',
+};
+const _destinacoesPorSituacao = {
+  'Em Uso': {'Operacional', 'Administrativo'},
+  'Disponível': {'Reserva Técnica', 'Almoxarifado'},
+};
 
 String _formatarDataContabil(Object? value) {
   if (value == null) return 'Não informado';
@@ -64,7 +75,6 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
       'fabricante',
       'numero_serie',
       'codigo_re',
-      'numero_patrimonio_anterior',
       'observacao',
     ])
       field: TextEditingController(),
@@ -99,6 +109,19 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
   int maiorEtapaLiberada = 0;
   Map<String, dynamic>? dadosContabeis;
   Map<String, dynamic>? responsavelConsultado;
+  String? codigoReConsultado;
+
+  List<Map<String, dynamic>> get _destinacoesDisponiveis {
+    final situacaoSelecionada = situacoes
+        .where((item) => item['id'] == situacaoId)
+        .firstOrNull;
+    final nomesPermitidos =
+        _destinacoesPorSituacao[situacaoSelecionada?['nome']];
+    if (nomesPermitidos == null) return [];
+    return destinacoes
+        .where((item) => nomesPermitidos.contains(item['nome']))
+        .toList();
+  }
 
   @override
   void initState() {
@@ -127,8 +150,12 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
       setState(() {
         categorias = resultados[0];
         estados = resultados[1];
-        situacoes = resultados[2];
-        destinacoes = resultados[3];
+        situacoes = resultados[2]
+            .where((item) => _situacoesNovoCadastro.contains(item['nome']))
+            .toList();
+        destinacoes = resultados[3]
+            .where((item) => _destinacoesNovoCadastro.contains(item['nome']))
+            .toList();
         empresas = resultados[4];
         carregando = false;
       });
@@ -161,6 +188,13 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
         setState(() => erro = error.toString().replaceFirst('Exception: ', ''));
       }
     }
+  }
+
+  void _selecionarSituacao(int? id) {
+    setState(() {
+      situacaoId = id;
+      destinacaoId = null;
+    });
   }
 
   Future<void> _selecionarDepartamento(int? id) async {
@@ -242,6 +276,15 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
       erro = null;
     });
     try {
+      final duplicado = await ApiService.patrimonioProtheusItemJaCadastrado(
+        codigo,
+        item,
+      );
+      if (duplicado) {
+        throw Exception(
+          'Este Código Protheus e Nº do Item já estão cadastrados.',
+        );
+      }
       final resultados = await Future.wait([
         ApiService.consultarProtheusCadastral(codigo, item),
         ApiService.consultarProtheusContabil(codigo, item),
@@ -277,6 +320,7 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
     setState(() {
       consultandoResponsavel = true;
       responsavelConsultado = null;
+      codigoReConsultado = null;
       erro = null;
     });
     try {
@@ -285,6 +329,7 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
       setState(() {
         responsavelConsultado =
             (resposta['dados'] as Map<String, dynamic>?) ?? resposta;
+        codigoReConsultado = codigo;
       });
     } catch (error) {
       if (mounted) {
@@ -296,11 +341,13 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
   }
 
   Future<void> _selecionarGarantia() async {
+    final agora = DateTime.now();
+    final hoje = DateTime(agora.year, agora.month, agora.day);
     final data = await showDatePicker(
       context: context,
-      firstDate: DateTime(1990),
+      firstDate: hoje,
       lastDate: DateTime(2100),
-      initialDate: garantia ?? DateTime.now(),
+      initialDate: garantia ?? hoje,
     );
     if (data != null) setState(() => garantia = data);
   }
@@ -315,6 +362,21 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
     if (!valido) return false;
     if (etapaAtual == 0 && possuiGarantia && garantia == null) {
       setState(() => erro = 'Informe a data de fim da garantia.');
+      return false;
+    }
+    final agora = DateTime.now();
+    final hoje = DateTime(agora.year, agora.month, agora.day);
+    if (etapaAtual == 0 && garantia != null && garantia!.isBefore(hoje)) {
+      setState(() {
+        erro = 'A data de fim da garantia não pode ser anterior à data do cadastro.';
+      });
+      return false;
+    }
+    if (etapaAtual == 2 &&
+        codigoReConsultado != _controllers['codigo_re']!.text.trim()) {
+      setState(() {
+        erro = 'Consulte o RE informado antes de continuar.';
+      });
       return false;
     }
     setState(() => erro = null);
@@ -397,7 +459,6 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
         'situacao_id': situacaoId,
         'destinacao_id': destinacaoId,
         'observacao': opcional('observacao'),
-        'numero_patrimonio_anterior': opcional('numero_patrimonio_anterior'),
       });
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
@@ -424,6 +485,7 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
     bool readOnly = false,
     List<TextInputFormatter>? inputFormatters,
     TextInputType? keyboardType,
+    ValueChanged<String>? onChanged,
   }) {
     return SizedBox(
       width: width,
@@ -433,6 +495,7 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
         readOnly: readOnly,
         inputFormatters: inputFormatters,
         keyboardType: keyboardType,
+        onChanged: onChanged,
         validator: required ? _obrigatorio : null,
         decoration: InputDecoration(
           labelText: label,
@@ -454,6 +517,9 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
     return SizedBox(
       width: width,
       child: DropdownButtonFormField<int>(
+        key: ValueKey(
+          '$label:$value:${items.map((item) => item['id']).join(',')}',
+        ),
         initialValue: value,
         isExpanded: true,
         validator: _obrigatorio,
@@ -713,6 +779,16 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
                   FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
                   LengthLimitingTextInputFormatter(5),
                 ],
+                onChanged: (_) {
+                  if (codigoReConsultado == null &&
+                      responsavelConsultado == null) {
+                    return;
+                  }
+                  setState(() {
+                    codigoReConsultado = null;
+                    responsavelConsultado = null;
+                  });
+                },
               ),
               SizedBox(
                 width: campo,
@@ -866,20 +942,16 @@ class _PatrimonioFormDialogState extends State<PatrimonioFormDialog> {
                 'Situação *',
                 situacoes,
                 situacaoId,
-                (id) => setState(() => situacaoId = id),
+                _selecionarSituacao,
                 width: campo,
               ),
               _dropdown(
                 'Destinação *',
-                destinacoes,
+                _destinacoesDisponiveis,
                 destinacaoId,
                 (id) => setState(() => destinacaoId = id),
                 width: campo,
-              ),
-              _texto(
-                'numero_patrimonio_anterior',
-                'Nº Patrimônio Anterior',
-                width: campo,
+                enabled: situacaoId != null,
               ),
               _texto('observacao', 'Observação', width: width, lines: 4),
             ],

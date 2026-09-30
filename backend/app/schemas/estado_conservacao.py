@@ -9,7 +9,6 @@ class EstadoConservacaoResponse(BaseModel):
     id: int
     codigo: str
     nome: str
-    descricao: str | None
     ativo: bool
     ordem_exibicao: int
     criado_em: datetime

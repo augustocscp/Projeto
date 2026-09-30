@@ -63,9 +63,7 @@ def contexto(db: Session) -> dict:
         ativo=True,
     )
     categoria = CategoriaPatrimonial(
-        codigo="TESTE",
         nome="Categoria de teste",
-        descricao=None,
         ativo=True,
     )
     empresa = db.scalar(select(Empresa).where(Empresa.nome == "Urbi mobilidade"))
@@ -85,8 +83,8 @@ def contexto(db: Session) -> dict:
     db.add_all([usuario, categoria, responsavel])
     db.commit()
 
-    def id_dominio(model, codigo: str) -> int:
-        return db.scalar(select(model.id).where(model.codigo == codigo))
+    def id_dominio(model, valor: str, campo: str = "codigo") -> int:
+        return db.scalar(select(model.id).where(getattr(model, campo) == valor))
 
     from app.models.destinacao_patrimonial import DestinacaoPatrimonial
     from app.models.estado_conservacao import EstadoConservacao
@@ -112,7 +110,9 @@ def contexto(db: Session) -> dict:
         "codigo_re": responsavel.codigo_re,
         "estado_conservacao_id": id_dominio(EstadoConservacao, "BOM"),
         "situacao_id": id_dominio(SituacaoPatrimonial, "EM_USO"),
-        "destinacao_id": id_dominio(DestinacaoPatrimonial, "OPERACAO"),
+        "destinacao_id": id_dominio(
+            DestinacaoPatrimonial, "Operacional", campo="nome"
+        ),
         "observacao": None,
         "numero_patrimonio_anterior": None,
     }

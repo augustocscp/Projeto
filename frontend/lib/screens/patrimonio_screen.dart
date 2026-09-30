@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../services/api_service.dart';
 import '../widgets/patrimonio_form_dialog.dart';
@@ -15,21 +17,79 @@ class PatrimonioScreen extends StatefulWidget {
 }
 
 class _PatrimonioScreenState extends State<PatrimonioScreen> {
-  final _buscaController = TextEditingController();
+  final _plaquetaController = TextEditingController();
+  final _descricaoController = TextEditingController();
   List<Map<String, dynamic>> _itens = [];
+  List<Map<String, dynamic>> _departamentos = [];
+  List<Map<String, dynamic>> _situacoes = [];
+  List<Map<String, dynamic>> _responsaveis = [];
+  List<Map<String, dynamic>> _categorias = [];
+  Map<String, dynamic> _indicadores = {};
+  int? _departamentoId;
+  int? _situacaoId;
+  int? _responsavelId;
+  int? _categoriaId;
+  int _pagina = 1;
+  int _paginas = 0;
+  int _total = 0;
+  static const _tamanhoPagina = 10;
   bool _carregando = true;
   String? _erro;
 
   @override
   void initState() {
     super.initState();
-    _carregar();
+    _inicializar();
   }
 
   @override
   void dispose() {
-    _buscaController.dispose();
+    _plaquetaController.dispose();
+    _descricaoController.dispose();
     super.dispose();
+  }
+
+  Future<void> _inicializar() async {
+    setState(() {
+      _carregando = true;
+      _erro = null;
+    });
+    try {
+      final resultados = await Future.wait<dynamic>([
+        ApiService.listarPatrimonios(pagina: 1, tamanho: _tamanhoPagina),
+        ApiService.getPatrimonioResumo(),
+        ApiService.listarDepartamentos(),
+        ApiService.listarSituacoes(),
+        ApiService.listarResponsaveis(),
+        ApiService.listarCategorias(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _aplicarResultado(resultados[0] as Map<String, dynamic>);
+        _indicadores =
+            (resultados[1] as Map<String, dynamic>)['indicadores']
+                as Map<String, dynamic>;
+        _departamentos = resultados[2] as List<Map<String, dynamic>>;
+        _situacoes = resultados[3] as List<Map<String, dynamic>>;
+        _responsaveis = resultados[4] as List<Map<String, dynamic>>;
+        _categorias = resultados[5] as List<Map<String, dynamic>>;
+      });
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _erro = error.toString().replaceFirst('Exception: ', '');
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _carregando = false);
+    }
+  }
+
+  void _aplicarResultado(Map<String, dynamic> resultado) {
+    _itens = (resultado['items'] as List<dynamic>).cast<Map<String, dynamic>>();
+    _pagina = resultado['page'] as int;
+    _paginas = resultado['pages'] as int;
+    _total = resultado['total'] as int;
   }
 
   Future<void> _carregar() async {
@@ -38,19 +98,57 @@ class _PatrimonioScreenState extends State<PatrimonioScreen> {
       _erro = null;
     });
     try {
-      final resultado = await ApiService.listarPatrimonios(
-        busca: _buscaController.text,
-      );
+      final resultados = await Future.wait([
+        ApiService.listarPatrimonios(
+          pagina: _pagina,
+          tamanho: _tamanhoPagina,
+          numeroPlaqueta: _plaquetaController.text,
+          descricao: _descricaoController.text,
+          departamentoId: _departamentoId,
+          situacaoId: _situacaoId,
+          responsavelId: _responsavelId,
+          categoriaId: _categoriaId,
+        ),
+        ApiService.getPatrimonioResumo(),
+      ]);
       if (!mounted) return;
       setState(() {
-        _itens = (resultado['items'] as List<dynamic>)
-            .cast<Map<String, dynamic>>();
+        _aplicarResultado(resultados[0]);
+        _indicadores = resultados[1]['indicadores'] as Map<String, dynamic>;
       });
     } catch (error) {
-      if (mounted) setState(() => _erro = error.toString());
+      if (mounted) {
+        setState(() {
+          _erro = error.toString().replaceFirst('Exception: ', '');
+        });
+      }
     } finally {
       if (mounted) setState(() => _carregando = false);
     }
+  }
+
+  void _pesquisar() {
+    _pagina = 1;
+    _carregar();
+  }
+
+  void _limparFiltros() {
+    setState(() {
+      _plaquetaController.clear();
+      _descricaoController.clear();
+      _departamentoId = null;
+      _situacaoId = null;
+      _responsavelId = null;
+      _categoriaId = null;
+      _pagina = 1;
+    });
+    _carregar();
+  }
+
+  void _irParaPagina(int pagina) {
+    if (pagina < 1 || pagina > _paginas || pagina == _pagina) return;
+    _pagina = pagina;
+    _carregar();
   }
 
   Future<void> _novo() async {
@@ -60,7 +158,10 @@ class _PatrimonioScreenState extends State<PatrimonioScreen> {
       barrierColor: const Color(0x990B2235),
       builder: (_) => const PatrimonioFormDialog(),
     );
-    if (criado == true) await _carregar();
+    if (criado == true) {
+      _pagina = 1;
+      await _carregar();
+    }
   }
 
   Future<void> _inativar(Map<String, dynamic> item) async {
@@ -123,42 +224,58 @@ class _PatrimonioScreenState extends State<PatrimonioScreen> {
         children: [
           Container(
             color: Colors.white,
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _buscaController,
-                    onSubmitted: (_) => _carregar(),
-                    decoration: const InputDecoration(
-                      labelText: 'Buscar por número de tombo',
-                      prefixIcon: Icon(Icons.search),
-                    ),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                const titulo = Text(
+                  'Patrimônios cadastrados',
+                  style: TextStyle(
+                    color: Color(0xFF17364D),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
                   ),
-                ),
-                const SizedBox(width: 12),
-                IconButton.filledTonal(
-                  tooltip: 'Atualizar',
-                  onPressed: _carregar,
-                  icon: const Icon(Icons.refresh),
-                ),
-                const SizedBox(width: 12),
-                FilledButton.icon(
-                  onPressed: _novo,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Novo patrimônio'),
-                ),
-              ],
+                );
+                final acoes = Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton.filledTonal(
+                      tooltip: 'Atualizar',
+                      onPressed: _carregar,
+                      icon: const Icon(Icons.refresh),
+                    ),
+                    const SizedBox(width: 12),
+                    FilledButton.icon(
+                      onPressed: _novo,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Novo patrimônio'),
+                    ),
+                  ],
+                );
+                if (constraints.maxWidth < 520) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [titulo, const SizedBox(height: 10), acoes],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: titulo),
+                    acoes,
+                  ],
+                );
+              },
             ),
           ),
-          Expanded(child: _conteudo()),
+          Expanded(child: _corpo()),
         ],
       ),
     );
   }
 
-  Widget _conteudo() {
-    if (_carregando) return const Center(child: CircularProgressIndicator());
+  Widget _corpo() {
+    if (_carregando && _indicadores.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (_erro != null) {
       return Center(
         child: Column(
@@ -168,79 +285,503 @@ class _PatrimonioScreenState extends State<PatrimonioScreen> {
             const SizedBox(height: 8),
             Text(_erro!),
             TextButton(
-              onPressed: _carregar,
+              onPressed: _inicializar,
               child: const Text('Tentar novamente'),
             ),
           ],
         ),
       );
     }
-    if (_itens.isEmpty) {
-      return const Center(child: Text('Nenhum patrimônio encontrado.'));
-    }
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
-      child: SizedBox(
-        width: double.infinity,
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(const Color(0xFFEAF3F8)),
-          columns: const [
-            DataColumn(label: Text('Tombo')),
-            DataColumn(label: Text('Descrição')),
-            DataColumn(label: Text('Plaqueta')),
-            DataColumn(label: Text('Filial')),
-            DataColumn(label: Text('Localização')),
-            DataColumn(label: Text('Situação')),
-            DataColumn(label: Text('Responsável')),
-            DataColumn(label: Text('')),
-          ],
-          rows: _itens.map((item) {
-            final ativo = item['ativo'] as bool? ?? false;
-            return DataRow(
-              cells: [
-                DataCell(Text(item['numero_tombo'] as String)),
-                DataCell(
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 260),
-                    child: Text(
-                      item['descricao'] as String,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-                DataCell(Text(item['numero_plaqueta_fisica'] as String)),
-                DataCell(Text(item['filial']['nome'] as String)),
-                DataCell(Text(item['localizacao']['nome'] as String)),
-                DataCell(Text(item['situacao']['nome'] as String)),
-                DataCell(Text(item['responsavel']['nome'] as String)),
-                DataCell(
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'Ver detalhes',
-                        onPressed: () => _detalhar(item),
-                        icon: const Icon(Icons.visibility_outlined),
-                      ),
-                      IconButton(
-                        tooltip: ativo ? 'Inativar' : 'Patrimônio inativo',
-                        onPressed: ativo ? () => _inativar(item) : null,
-                        icon: Icon(
-                          ativo
-                              ? Icons.block_outlined
-                              : Icons.check_circle_outline,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          }).toList(),
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _painelFiltros(),
+          const SizedBox(height: 18),
+          _painelIndicadores(),
+          const SizedBox(height: 18),
+          _tabela(),
+        ],
       ),
     );
   }
+
+  Widget _painelFiltros() => Container(
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border.all(color: const Color(0xFFDCE5EB)),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        if (width >= 1180) {
+          final primeiraLinha = (width - 32) / 3;
+          final segundaLinha = (width - 444) / 3;
+          return Column(
+            children: [
+              Row(
+                children: [
+                  _campoBusca(
+                    controller: _plaquetaController,
+                    label: 'Código de plaqueta',
+                    hint: 'Digite o código...',
+                    width: primeiraLinha,
+                  ),
+                  const SizedBox(width: 16),
+                  _campoBusca(
+                    controller: _descricaoController,
+                    label: 'Descrição',
+                    hint: 'Digite a descrição...',
+                    width: primeiraLinha,
+                  ),
+                  const SizedBox(width: 16),
+                  _filtroDropdown(
+                    label: 'Departamento',
+                    value: _departamentoId,
+                    items: _departamentos,
+                    onChanged: (value) =>
+                        setState(() => _departamentoId = value),
+                    width: primeiraLinha,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  _filtroDropdown(
+                    label: 'Situação',
+                    value: _situacaoId,
+                    items: _situacoes,
+                    onChanged: (value) => setState(() => _situacaoId = value),
+                    width: segundaLinha,
+                  ),
+                  const SizedBox(width: 16),
+                  _filtroDropdown(
+                    label: 'Usuário',
+                    value: _responsavelId,
+                    items: _responsaveis,
+                    onChanged: (value) =>
+                        setState(() => _responsavelId = value),
+                    width: segundaLinha,
+                  ),
+                  const SizedBox(width: 16),
+                  _filtroDropdown(
+                    label: 'Categoria',
+                    value: _categoriaId,
+                    items: _categorias,
+                    onChanged: (value) => setState(() => _categoriaId = value),
+                    width: segundaLinha,
+                  ),
+                  const SizedBox(width: 16),
+                  _botaoPesquisar(),
+                  const SizedBox(width: 16),
+                  _botaoLimpar(),
+                ],
+              ),
+            ],
+          );
+        }
+        final campo = width >= 1180
+            ? (width - 32) / 3
+            : width >= 680
+            ? (width - 16) / 2
+            : width;
+        return Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          crossAxisAlignment: WrapCrossAlignment.end,
+          children: [
+            _campoBusca(
+              controller: _plaquetaController,
+              label: 'Código de plaqueta',
+              hint: 'Digite o código...',
+              width: campo,
+            ),
+            _campoBusca(
+              controller: _descricaoController,
+              label: 'Descrição',
+              hint: 'Digite a descrição...',
+              width: campo,
+            ),
+            _filtroDropdown(
+              label: 'Departamento',
+              value: _departamentoId,
+              items: _departamentos,
+              onChanged: (value) => setState(() => _departamentoId = value),
+              width: campo,
+            ),
+            _filtroDropdown(
+              label: 'Situação',
+              value: _situacaoId,
+              items: _situacoes,
+              onChanged: (value) => setState(() => _situacaoId = value),
+              width: campo,
+            ),
+            _filtroDropdown(
+              label: 'Usuário',
+              value: _responsavelId,
+              items: _responsaveis,
+              onChanged: (value) => setState(() => _responsavelId = value),
+              width: campo,
+            ),
+            _filtroDropdown(
+              label: 'Categoria',
+              value: _categoriaId,
+              items: _categorias,
+              onChanged: (value) => setState(() => _categoriaId = value),
+              width: campo,
+            ),
+            _botaoPesquisar(),
+            _botaoLimpar(),
+          ],
+        );
+      },
+    ),
+  );
+
+  Widget _botaoPesquisar() => SizedBox(
+    width: 190,
+    height: 48,
+    child: FilledButton.icon(
+      onPressed: _carregando ? null : _pesquisar,
+      icon: const Icon(Icons.search),
+      label: const Text('Pesquisar'),
+    ),
+  );
+
+  Widget _botaoLimpar() => SizedBox(
+    width: 190,
+    height: 48,
+    child: OutlinedButton.icon(
+      onPressed: _carregando ? null : _limparFiltros,
+      icon: const Icon(Icons.filter_alt_off_outlined),
+      label: const Text('Limpar filtros'),
+    ),
+  );
+
+  Widget _campoBusca({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required double width,
+  }) => SizedBox(
+    width: width,
+    child: TextField(
+      controller: controller,
+      onSubmitted: (_) => _pesquisar(),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: const Icon(Icons.search),
+      ),
+    ),
+  );
+
+  Widget _filtroDropdown({
+    required String label,
+    required int? value,
+    required List<Map<String, dynamic>> items,
+    required ValueChanged<int?> onChanged,
+    required double width,
+  }) => SizedBox(
+    width: width,
+    child: DropdownButtonFormField<int>(
+      key: ValueKey('$label:$value'),
+      initialValue: value,
+      isExpanded: true,
+      decoration: InputDecoration(labelText: label),
+      items: [
+        const DropdownMenuItem<int>(value: null, child: Text('Todos')),
+        ...items.map(
+          (item) => DropdownMenuItem<int>(
+            value: item['id'] as int,
+            child: Text(
+              item['nome'] as String,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+      ],
+      onChanged: onChanged,
+    ),
+  );
+
+  Widget _painelIndicadores() => LayoutBuilder(
+    builder: (context, constraints) {
+      final width = constraints.maxWidth;
+      final cardWidth = width >= 1050
+          ? (width - 54) / 4
+          : width >= 560
+          ? (width - 18) / 2
+          : width;
+      final dados = [
+        _KpiData(
+          'Total de patrimônios',
+          _indicadores['bensCadastrados'],
+          Icons.storage_outlined,
+          const Color(0xFF1976D2),
+        ),
+        _KpiData(
+          'Ativos',
+          _indicadores['bensAtivos'],
+          Icons.check_circle_outline,
+          const Color(0xFF1C9B55),
+        ),
+        _KpiData(
+          'Baixados',
+          _indicadores['bensBaixados'],
+          Icons.arrow_circle_down_outlined,
+          const Color(0xFFE39A16),
+        ),
+        _KpiData(
+          'Inativos',
+          _indicadores['bensInativos'],
+          Icons.block_outlined,
+          const Color(0xFF667985),
+        ),
+      ];
+      return Wrap(
+        spacing: 18,
+        runSpacing: 18,
+        children: dados
+            .map((item) => SizedBox(width: cardWidth, child: _KpiCard(item)))
+            .toList(),
+      );
+    },
+  );
+
+  Widget _tabela() => Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border.all(color: const Color(0xFFDCE5EB)),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Column(
+      children: [
+        if (_carregando) const LinearProgressIndicator(minHeight: 2),
+        LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: DataTable(
+                headingRowColor: WidgetStateProperty.all(
+                  const Color(0xFFEAF3F8),
+                ),
+                headingTextStyle: const TextStyle(
+                  color: Color(0xFF1478B8),
+                  fontWeight: FontWeight.w700,
+                ),
+                dataRowMinHeight: 54,
+                dataRowMaxHeight: 58,
+                columns: const [
+                  DataColumn(label: Text('Nº Patrimônio')),
+                  DataColumn(label: Text('Cód. do bem')),
+                  DataColumn(label: Text('Descrição')),
+                  DataColumn(label: Text('Empresa')),
+                  DataColumn(label: Text('Filial')),
+                  DataColumn(label: Text('Localização')),
+                  DataColumn(label: Text('Situação')),
+                  DataColumn(label: Text('Valor atual')),
+                  DataColumn(label: Text('Última atualização')),
+                  DataColumn(label: Text('Ações')),
+                ],
+                rows: _itens.map(_linhaTabela).toList(),
+              ),
+            ),
+          ),
+        ),
+        if (_itens.isEmpty && !_carregando)
+          const Padding(
+            padding: EdgeInsets.all(32),
+            child: Text('Nenhum patrimônio encontrado.'),
+          ),
+        const Divider(height: 1),
+        _paginacao(),
+      ],
+    ),
+  );
+
+  DataRow _linhaTabela(Map<String, dynamic> item) {
+    final ativo = item['ativo'] as bool? ?? false;
+    final contabil = item['contabil'] as Map<String, dynamic>?;
+    return DataRow(
+      cells: [
+        DataCell(Text(_texto(item['numero_tombo']))),
+        DataCell(Text(_texto(item['codigo_protheus']))),
+        DataCell(
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 250),
+            child: Text(
+              _texto(item['descricao']),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+        DataCell(Text(_nomeReferencia(item['empresa']))),
+        DataCell(Text(_nomeReferencia(item['filial']))),
+        DataCell(Text(_nomeReferencia(item['localizacao']))),
+        DataCell(Text(_nomeReferencia(item['situacao']))),
+        DataCell(Text(_formatarMoeda(contabil?['valor_atual']))),
+        DataCell(Text(_formatarData(item['atualizado_em']))),
+        DataCell(
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: 'Ver detalhes',
+                onPressed: () => _detalhar(item),
+                icon: const Icon(Icons.visibility_outlined),
+              ),
+              IconButton(
+                tooltip: ativo ? 'Inativar' : 'Patrimônio inativo',
+                onPressed: ativo ? () => _inativar(item) : null,
+                icon: Icon(
+                  ativo ? Icons.block_outlined : Icons.check_circle_outline,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _paginacao() {
+    final inicio = _total == 0 ? 0 : ((_pagina - 1) * _tamanhoPagina) + 1;
+    final fim = math.min(_pagina * _tamanhoPagina, _total);
+    final controles = Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        OutlinedButton.icon(
+          onPressed: _pagina > 1 && !_carregando
+              ? () => _irParaPagina(_pagina - 1)
+              : null,
+          icon: const Icon(Icons.chevron_left),
+          label: const Text('Anterior'),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Text(
+            _paginas == 0 ? '0 de 0' : '$_pagina de $_paginas',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
+        FilledButton.tonalIcon(
+          onPressed: _pagina < _paginas && !_carregando
+              ? () => _irParaPagina(_pagina + 1)
+              : null,
+          iconAlignment: IconAlignment.end,
+          icon: const Icon(Icons.chevron_right),
+          label: const Text('Próximo'),
+        ),
+      ],
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        runAlignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 16,
+        runSpacing: 10,
+        children: [Text('$inicio–$fim de $_total registros'), controles],
+      ),
+    );
+  }
+
+  String _texto(Object? valor) => valor?.toString() ?? '-';
+
+  String _nomeReferencia(Object? valor) {
+    if (valor is Map<String, dynamic>) return _texto(valor['nome']);
+    return '-';
+  }
+
+  String _formatarData(Object? valor) {
+    final data = DateTime.tryParse(valor?.toString() ?? '');
+    return data == null ? '-' : DateFormat('dd/MM/yyyy').format(data.toLocal());
+  }
+
+  String _formatarMoeda(Object? valor) {
+    if (valor == null) return '-';
+    final numero = valor is num ? valor : num.tryParse(valor.toString());
+    if (numero == null) return '-';
+    return NumberFormat.currency(
+      locale: 'pt_BR',
+      symbol: 'R\$',
+      decimalDigits: 2,
+    ).format(numero);
+  }
+}
+
+class _KpiData {
+  final String label;
+  final Object? value;
+  final IconData icon;
+  final Color color;
+
+  const _KpiData(this.label, this.value, this.icon, this.color);
+}
+
+class _KpiCard extends StatelessWidget {
+  final _KpiData data;
+
+  const _KpiCard(this.data);
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 116,
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border.all(color: const Color(0xFFDCE5EB)),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(
+            color: data.color.withValues(alpha: 0.11),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(data.icon, color: data.color, size: 29),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                data.label,
+                style: const TextStyle(
+                  color: Color(0xFF526875),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                NumberFormat.decimalPattern('pt_BR').format(data.value ?? 0),
+                style: TextStyle(
+                  color: data.color,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _PatrimonioDetailDialog extends StatelessWidget {

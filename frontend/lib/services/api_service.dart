@@ -80,13 +80,25 @@ class ApiService {
 
   static Future<Map<String, dynamic>> listarPatrimonios({
     int pagina = 1,
-    int tamanho = 50,
-    String? busca,
+    int tamanho = 10,
+    String? numeroPlaqueta,
+    String? descricao,
+    int? departamentoId,
+    int? situacaoId,
+    int? responsavelId,
+    int? categoriaId,
   }) async {
     final query = <String, String>{'pagina': '$pagina', 'tamanho': '$tamanho'};
-    if (busca != null && busca.trim().isNotEmpty) {
-      query['numero_tombo'] = busca.trim();
+    if (numeroPlaqueta != null && numeroPlaqueta.trim().isNotEmpty) {
+      query['numero_plaqueta_fisica'] = numeroPlaqueta.trim();
     }
+    if (descricao != null && descricao.trim().isNotEmpty) {
+      query['descricao'] = descricao.trim();
+    }
+    if (departamentoId != null) query['departamento_id'] = '$departamentoId';
+    if (situacaoId != null) query['situacao_id'] = '$situacaoId';
+    if (responsavelId != null) query['responsavel_id'] = '$responsavelId';
+    if (categoriaId != null) query['categoria_id'] = '$categoriaId';
     final response = await _client.get(
       Uri.parse('$baseUrl/api/patrimonios').replace(queryParameters: query),
     );
@@ -172,6 +184,20 @@ class ApiService {
       ),
     );
     return _protheusResponse(response);
+  }
+
+  static Future<bool> patrimonioProtheusItemJaCadastrado(
+    String codigo,
+    String numeroItem,
+  ) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/patrimonios/verificar-duplicidade').replace(
+        queryParameters: {'codigo_protheus': codigo, 'numero_item': numeroItem},
+      ),
+    );
+    if (response.statusCode != 200) throw Exception(_errorMessage(response));
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    return decoded['duplicado'] == true;
   }
 
   static Future<Map<String, dynamic>> consultarProtheusContabil(
