@@ -1,7 +1,8 @@
 from collections.abc import Generator
 
-from sqlalchemy import MetaData, create_engine, text
+from sqlalchemy import MetaData, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.schema import CreateSchema
 
 from app.config import DATABASE_SCHEMA, DATABASE_URL
 
@@ -30,6 +31,6 @@ def create_database_objects() -> None:
     import app.models  # noqa: F401
 
     with engine.begin() as connection:
-        connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{DATABASE_SCHEMA}"'))
+        connection.execute(CreateSchema(DATABASE_SCHEMA, if_not_exists=True))
 
     Base.metadata.create_all(bind=engine)

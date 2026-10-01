@@ -12,9 +12,7 @@ def utc_now() -> datetime:
 
 class Departamento(Base):
     __tablename__ = "departamentos"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    codigo: Mapped[str] = mapped_column(String(20), unique=True, index=True)
     nome: Mapped[str] = mapped_column(String(255))
     descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)

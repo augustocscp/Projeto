@@ -7,6 +7,7 @@ Create Date: 2026-09-21
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.schema import CreateSchema
 
 from app.config import DATABASE_SCHEMA
 
@@ -17,7 +18,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(f'CREATE SCHEMA IF NOT EXISTS "{DATABASE_SCHEMA}"')
+    op.execute(CreateSchema(DATABASE_SCHEMA, if_not_exists=True))
 
     op.create_table(
         "usuarios",

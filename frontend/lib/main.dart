@@ -7,12 +7,7 @@ import 'services/api_service.dart';
 import 'theme/app_theme.dart';
 
 // Desenvolvimento: altere para false para voltar a exigir login Microsoft.
-const bool _ignorarLoginEmDesenvolvimento = false;
-
-const Map<String, dynamic> _usuarioDesenvolvimento = {
-  'nome': 'Desenvolvimento',
-  'email': 'dev@sistema.local',
-};
+const bool _ignorarLoginEmDesenvolvimento = true;
 
 void main() {
   runApp(const PatrimonioApp());
@@ -40,12 +35,17 @@ class _PatrimonioAppState extends State<PatrimonioApp> {
 
   Future<void> _verificarSessao() async {
     if (_ignorarLoginEmDesenvolvimento) {
-      setState(() {
-        _usuario = _usuarioDesenvolvimento;
-        _autenticado = true;
-        _inicializado = true;
-      });
-      return;
+      try {
+        final usuario = await ApiService.loginDesenvolvimento();
+        setState(() {
+          _usuario = usuario;
+          _autenticado = true;
+          _inicializado = true;
+        });
+        return;
+      } catch (error) {
+        debugPrint('Falha ao iniciar sessão de desenvolvimento: $error');
+      }
     }
 
     try {
@@ -76,44 +76,30 @@ class _PatrimonioAppState extends State<PatrimonioApp> {
         _carregando = false;
       });
 
-      debugPrint(
-        'Backend indisponível. Verifique se o servidor está rodando.',
-      );
+      debugPrint('Backend indisponível. Verifique se o servidor está rodando.');
       return;
     }
 
     final url = Uri.parse('http://localhost:8000/auth/login');
 
-    final abriu = await launchUrl(
-      url,
-      webOnlyWindowName: '_self',
-    );
+    final abriu = await launchUrl(url, webOnlyWindowName: '_self');
 
     setState(() {
       _carregando = false;
     });
 
     if (!abriu) {
-      debugPrint(
-        'Não foi possível abrir a tela de login da Microsoft.',
-      );
+      debugPrint('Não foi possível abrir a tela de login da Microsoft.');
     }
   }
 
   Future<void> _logout() async {
     if (_ignorarLoginEmDesenvolvimento) {
-      setState(() {
-        _usuario = _usuarioDesenvolvimento;
-        _autenticado = true;
-      });
       return;
     }
 
     final url = Uri.parse('http://localhost:8000/auth/logout');
-    final abriu = await launchUrl(
-      url,
-      webOnlyWindowName: '_self',
-    );
+    final abriu = await launchUrl(url, webOnlyWindowName: '_self');
 
     if (abriu) {
       return;
@@ -134,19 +120,10 @@ class _PatrimonioAppState extends State<PatrimonioApp> {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       home: !_inicializado || _carregando
-          ? const Scaffold(
-              body: Center(
-                child: CircularProgressIndicator(),
-              ),
-            )
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : _autenticado
-              ? HomeScreen(
-                  usuario: _usuario!,
-                  onLogoutPressed: _logout,
-                )
-              : LoginScreen(
-                  onLoginPressed: _login,
-                ),
+          ? HomeScreen(usuario: _usuario!, onLogoutPressed: _logout)
+          : LoginScreen(onLoginPressed: _login),
     );
   }
 }

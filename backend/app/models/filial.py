@@ -38,7 +38,6 @@ class Filial(Base):
         ForeignKey(f"{DATABASE_SCHEMA}.cidades.id"),
         index=True,
     )
-    codigo: Mapped[str | None] = mapped_column(String(20), nullable=True)
     nome: Mapped[str] = mapped_column(String(255), index=True)
     tipo_unidade: Mapped[str] = mapped_column(String(20))
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)

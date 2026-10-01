@@ -1,10 +1,22 @@
 import os
+import re
 from pathlib import Path
 from urllib.parse import quote
 
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
+
+_DATABASE_SCHEMA_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,62}")
+
+
+def validate_database_schema(schema: str) -> str:
+    if not _DATABASE_SCHEMA_PATTERN.fullmatch(schema):
+        raise RuntimeError(
+            "DATABASE_SCHEMA deve ser um identificador ASCII valido de ate 63 caracteres"
+        )
+    return schema
 
 
 def _normalize_database_url(url: str) -> str:
@@ -27,9 +39,27 @@ CLIENT_ID = "37990847-712a-4d68-9f36-bb6f54482d35"
 TENANT_ID = "dc1693df-d65a-491e-bced-e17803feaf5e"
 CLIENT_SECRET = os.environ.get("AZURE_CLIENT_SECRET", "")
 DATABASE_URL = _normalize_database_url(os.environ.get("DATABASE_URL", ""))
-DATABASE_SCHEMA = os.environ.get("DATABASE_SCHEMA", "gadm")
+DATABASE_SCHEMA = validate_database_schema(
+    os.environ.get("DATABASE_SCHEMA", "gadm")
+)
 AUTO_CREATE_DATABASE_OBJECTS = (
     os.environ.get("AUTO_CREATE_DATABASE_OBJECTS", "false").lower() == "true"
+)
+DEV_AUTH_BYPASS = os.environ.get("DEV_AUTH_BYPASS", "false").lower() == "true"
+
+GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "")
+GCP_BIGQUERY_DATASET = os.environ.get("GCP_BIGQUERY_DATASET", "")
+GCP_CREDENTIALS_PATH = os.environ.get("GCP_CREDENTIALS_PATH", "")
+GCP_BIGQUERY_ENABLED = (
+    os.environ.get("GCP_BIGQUERY_ENABLED", "false").lower() == "true"
+)
+BIGQUERY_TABLE_SN1 = os.environ.get("BIGQUERY_TABLE_SN1", "")
+BIGQUERY_TABLE_SN3 = os.environ.get("BIGQUERY_TABLE_SN3", "")
+BIGQUERY_TABLE_SB1 = os.environ.get("BIGQUERY_TABLE_SB1", "")
+BIGQUERY_TABLE_FUNCIONARIOS = os.environ.get("BIGQUERY_TABLE_FUNCIONARIOS", "")
+BIGQUERY_TABLE_CTT = os.environ.get("BIGQUERY_TABLE_CTT", "")
+BIGQUERY_QUERY_TIMEOUT_SECONDS = int(
+    os.environ.get("BIGQUERY_QUERY_TIMEOUT_SECONDS", "15")
 )
 
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.config import DATABASE_SCHEMA
@@ -13,9 +13,10 @@ def utc_now() -> datetime:
 
 class Sessao(Base):
     __tablename__ = "sessoes"
+    __table_args__ = (UniqueConstraint("token_hash"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), index=True)
     usuario_id: Mapped[int] = mapped_column(
         ForeignKey(f"{DATABASE_SCHEMA}.usuarios.id"),
         index=True,

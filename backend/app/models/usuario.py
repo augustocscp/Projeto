@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -12,11 +12,15 @@ def utc_now() -> datetime:
 
 class Usuario(Base):
     __tablename__ = "usuarios"
+    __table_args__ = (
+        UniqueConstraint("azure_oid"),
+        UniqueConstraint("email"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    azure_oid: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    azure_oid: Mapped[str] = mapped_column(String(100), index=True)
     nome: Mapped[str] = mapped_column(String(255))
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(255), index=True)
     cargo: Mapped[str] = mapped_column(String(100), default="")
     filial: Mapped[str] = mapped_column(String(100), default="")
     perfil: Mapped[str] = mapped_column(String(50), default="usuario")

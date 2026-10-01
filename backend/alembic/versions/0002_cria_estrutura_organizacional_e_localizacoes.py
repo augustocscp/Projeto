@@ -7,6 +7,8 @@ Create Date: 2026-09-22
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.schema import CreateSchema
 
 from app.config import DATABASE_SCHEMA
 
@@ -193,7 +195,7 @@ LOCALIZACAO_VINCULOS = (
 
 
 def upgrade() -> None:
-    op.execute(f'CREATE SCHEMA IF NOT EXISTS "{DATABASE_SCHEMA}"')
+    op.execute(CreateSchema(DATABASE_SCHEMA, if_not_exists=True))
 
     op.create_table(
         "empresas",
@@ -484,29 +486,96 @@ def _seed_initial_data() -> None:
         ],
     )
 
-    vinculo_sql = sa.text(
-        f"""
-        INSERT INTO {DATABASE_SCHEMA}.localizacao_vinculos (
-            localizacao_id,
-            filial_id,
-            departamento_id,
-            ativo
-        )
-        SELECT localizacao.id, filial.id, departamento.id, true
-        FROM {DATABASE_SCHEMA}.localizacoes AS localizacao
-        JOIN {DATABASE_SCHEMA}.filiais AS filial
-          ON filial.nome = :filial
-        JOIN {DATABASE_SCHEMA}.empresas AS empresa
-          ON empresa.id = filial.empresa_id
-         AND empresa.nome = 'Urbi mobilidade'
-        JOIN {DATABASE_SCHEMA}.departamentos AS departamento
-          ON departamento.codigo = :departamento
-        WHERE localizacao.nome = :localizacao
-        ON CONFLICT (localizacao_id, filial_id, departamento_id) DO NOTHING
-        """
+    _seed_localizacao_vinculos(op.get_bind())
+
+
+def _localizacao_vinculo_statement():
+    metadata = sa.MetaData()
+    localizacoes = sa.Table(
+        "localizacoes",
+        metadata,
+        sa.Column("id", sa.Integer()),
+        sa.Column("nome", sa.String()),
+        schema=DATABASE_SCHEMA,
     )
-    op.get_bind().execute(
-        vinculo_sql,
+    filiais = sa.Table(
+        "filiais",
+        metadata,
+        sa.Column("id", sa.Integer()),
+        sa.Column("empresa_id", sa.Integer()),
+        sa.Column("nome", sa.String()),
+        schema=DATABASE_SCHEMA,
+    )
+    empresas = sa.Table(
+        "empresas",
+        metadata,
+        sa.Column("id", sa.Integer()),
+        sa.Column("nome", sa.String()),
+        schema=DATABASE_SCHEMA,
+    )
+    departamentos = sa.Table(
+        "departamentos",
+        metadata,
+        sa.Column("id", sa.Integer()),
+        sa.Column("codigo", sa.String()),
+        schema=DATABASE_SCHEMA,
+    )
+    vinculos = sa.Table(
+        "localizacao_vinculos",
+        metadata,
+        sa.Column("localizacao_id", sa.Integer()),
+        sa.Column("filial_id", sa.Integer()),
+        sa.Column("departamento_id", sa.Integer()),
+        sa.Column("ativo", sa.Boolean()),
+        schema=DATABASE_SCHEMA,
+    )
+
+    origem = (
+        localizacoes.join(
+            filiais,
+            filiais.c.nome == sa.bindparam("filial"),
+        )
+        .join(
+            empresas,
+            sa.and_(
+                empresas.c.id == filiais.c.empresa_id,
+                empresas.c.nome == "Urbi mobilidade",
+            ),
+        )
+        .join(
+            departamentos,
+            departamentos.c.codigo == sa.bindparam("departamento"),
+        )
+    )
+    selecao = (
+        sa.select(
+            localizacoes.c.id,
+            filiais.c.id,
+            departamentos.c.id,
+            sa.true(),
+        )
+        .select_from(origem)
+        .where(localizacoes.c.nome == sa.bindparam("localizacao"))
+    )
+    return (
+        postgresql_insert(vinculos)
+        .from_select(
+            ["localizacao_id", "filial_id", "departamento_id", "ativo"],
+            selecao,
+        )
+        .on_conflict_do_nothing(
+            index_elements=[
+                vinculos.c.localizacao_id,
+                vinculos.c.filial_id,
+                vinculos.c.departamento_id,
+            ]
+        )
+    )
+
+
+def _seed_localizacao_vinculos(bind) -> None:
+    bind.execute(
+        _localizacao_vinculo_statement(),
         [
             {
                 "localizacao": localizacao,

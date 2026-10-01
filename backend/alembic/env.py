@@ -2,6 +2,7 @@ from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import create_engine, pool
+from sqlalchemy.schema import CreateSchema
 
 from app.config import DATABASE_SCHEMA, DATABASE_URL
 from app.database import Base
@@ -33,7 +34,7 @@ def run_migrations_offline() -> None:
     )
 
     with context.begin_transaction():
-        context.execute(f'CREATE SCHEMA IF NOT EXISTS "{DATABASE_SCHEMA}"')
+        context.execute(CreateSchema(DATABASE_SCHEMA, if_not_exists=True))
         context.run_migrations()
 
 
@@ -54,7 +55,7 @@ def run_migrations_online() -> None:
         )
 
         with context.begin_transaction():
-            context.execute(f'CREATE SCHEMA IF NOT EXISTS "{DATABASE_SCHEMA}"')
+            context.execute(CreateSchema(DATABASE_SCHEMA, if_not_exists=True))
             context.run_migrations()
 
 

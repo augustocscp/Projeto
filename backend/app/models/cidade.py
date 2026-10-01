@@ -17,7 +17,6 @@ class Cidade(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     nome: Mapped[str] = mapped_column(String(255), index=True)
     uf: Mapped[str] = mapped_column(String(2), index=True)
-    codigo_ibge: Mapped[str | None] = mapped_column(String(20), nullable=True)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     atualizado_em: Mapped[datetime] = mapped_column(
