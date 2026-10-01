@@ -18,7 +18,11 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Sistema Patrimonial API", lifespan=lifespan)
+app = FastAPI(
+    title="Sistema Patrimonial API",
+    version="1.1.0",
+    lifespan=lifespan,
+)
 
 
 @app.exception_handler(RequestValidationError)
