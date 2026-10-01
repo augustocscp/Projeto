@@ -1,7 +1,9 @@
 import os
 
+import pytest
 from sqlalchemy import func, inspect, select
 
+from app.config import validate_database_schema
 from app.models.categoria_patrimonial import CategoriaPatrimonial
 from app.models.departamento import Departamento
 from app.models.destinacao_patrimonial import DestinacaoPatrimonial
@@ -104,6 +106,45 @@ def test_migrations_criam_estrutura_e_seeds(db):
         departamento.descricao
         for departamento in db.scalars(select(Departamento)).all()
     )
+
+    total_vinculos = db.scalar(select(func.count(LocalizacaoVinculo.id)))
+    vinculos_distintos = db.scalar(
+        select(func.count()).select_from(
+            select(
+                LocalizacaoVinculo.localizacao_id,
+                LocalizacaoVinculo.filial_id,
+                LocalizacaoVinculo.departamento_id,
+            )
+            .distinct()
+            .subquery()
+        )
+    )
+    assert total_vinculos == 172
+    assert vinculos_distintos == 172
+
+
+@pytest.mark.parametrize(
+    "schema",
+    (
+        "",
+        "1gadm",
+        "gadm.public",
+        "gadm-test",
+        "gadm test",
+        'gadm"',
+        "gadm;DROP_SCHEMA",
+        "gadm--comentario",
+        "a" * 64,
+    ),
+)
+def test_database_schema_invalido_e_rejeitado(schema):
+    with pytest.raises(RuntimeError):
+        validate_database_schema(schema)
+
+
+@pytest.mark.parametrize("schema", ("gadm", "_gadm", "a" * 63))
+def test_database_schema_valido_e_aceito(schema):
+    assert validate_database_schema(schema) == schema
 
 
 def test_seeds_nao_possuem_codigos_duplicados(db):

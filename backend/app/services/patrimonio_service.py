@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from math import ceil
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select, text
+from sqlalchemy import Sequence, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -35,6 +35,10 @@ PATRIMONIO_LOAD_OPTIONS = (
     selectinload(Patrimonio.situacao),
     selectinload(Patrimonio.destinacao),
     selectinload(Patrimonio.contabil),
+)
+PATRIMONIO_NUMERO_TOMBO_SEQUENCE = Sequence(
+    "patrimonio_numero_tombo_seq",
+    schema=DATABASE_SCHEMA,
 )
 
 
@@ -113,9 +117,7 @@ def _validar_baixa(situacao: SituacaoPatrimonial, data_baixa_origem) -> None:
 
 
 def _proximo_numero_tombo(db: Session) -> str:
-    valor = db.scalar(
-        text(f"SELECT nextval('{DATABASE_SCHEMA}.patrimonio_numero_tombo_seq')")
-    )
+    valor = db.scalar(select(PATRIMONIO_NUMERO_TOMBO_SEQUENCE.next_value()))
     return f"PAT-{valor:06d}"
 
 

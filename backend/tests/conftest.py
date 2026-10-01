@@ -1,18 +1,25 @@
 import os
 from collections.abc import Generator
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+from uuid import uuid4
 
 from alembic import command
 from alembic.config import Config
 import pytest
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.orm import Session
+from sqlalchemy.schema import CreateSchema, DropSchema
 
+GENERATED_TEST_SCHEMA = f"gadm_test_{uuid4().hex}"
+os.environ["DATABASE_SCHEMA"] = GENERATED_TEST_SCHEMA
+os.environ["GCP_BIGQUERY_ENABLED"] = "false"
 TEST_SCHEMA = os.environ.get("DATABASE_SCHEMA", "")
 if not TEST_SCHEMA.startswith("gadm_test_"):
     raise RuntimeError("Os testes exigem um DATABASE_SCHEMA temporário iniciado por gadm_test_")
 
 from app.auth import get_current_user  # noqa: E402
-from app.config import DATABASE_URL  # noqa: E402
+from app.config import DATABASE_URL, validate_database_schema  # noqa: E402
 from app.database import engine, get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.categoria_patrimonial import CategoriaPatrimonial  # noqa: E402
@@ -23,19 +30,62 @@ from app.models.localizacao import LocalizacaoVinculo  # noqa: E402
 from app.models.responsavel import Responsavel  # noqa: E402
 from app.models.usuario import Usuario  # noqa: E402
 
+TEST_SCHEMA = validate_database_schema(TEST_SCHEMA)
+
+
+def _load_migration_0002():
+    migration_path = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "0002_cria_estrutura_organizacional_e_localizacoes.py"
+    )
+    spec = spec_from_file_location("migration_0002_security_test", migration_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Nao foi possivel carregar a migration 0002")
+    migration = module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    return migration
+
 
 @pytest.fixture(scope="session")
 def migrated_database() -> Generator[None]:
+    ownership_engine = create_engine(DATABASE_URL)
+    schema_owned = False
+    with ownership_engine.begin() as connection:
+        if inspect(connection).has_schema(TEST_SCHEMA):
+            raise RuntimeError("O schema temporario gerado ja existe")
+        connection.execute(CreateSchema(TEST_SCHEMA))
+    schema_owned = True
+
     alembic_config = Config("alembic.ini")
-    command.upgrade(alembic_config, "head")
     try:
+        command.upgrade(alembic_config, "0002")
+        migration_0002 = _load_migration_0002()
+        with engine.begin() as connection:
+            migration_0002._seed_localizacao_vinculos(connection)
+        command.upgrade(alembic_config, "0015")
+        command.downgrade(alembic_config, "0014")
+        command.upgrade(alembic_config, "head")
+        command.upgrade(alembic_config, "head")
         yield
     finally:
         engine.dispose()
-        cleanup_engine = create_engine(DATABASE_URL, isolation_level="AUTOCOMMIT")
-        with cleanup_engine.connect() as connection:
-            connection.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE'))
-        cleanup_engine.dispose()
+        ownership_engine.dispose()
+        if (
+            schema_owned
+            and TEST_SCHEMA == GENERATED_TEST_SCHEMA
+            and validate_database_schema(TEST_SCHEMA) == TEST_SCHEMA
+            and TEST_SCHEMA.startswith("gadm_test_")
+        ):
+            cleanup_engine = create_engine(DATABASE_URL)
+            try:
+                with cleanup_engine.begin() as connection:
+                    connection.execute(
+                        DropSchema(TEST_SCHEMA, cascade=True, if_exists=True)
+                    )
+            finally:
+                cleanup_engine.dispose()
 
 
 @pytest.fixture()

@@ -9,7 +9,7 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 import unicodedata
 
-from alembic import op
+from alembic import context, op
 import sqlalchemy as sa
 
 from app.config import DATABASE_SCHEMA
@@ -395,6 +395,11 @@ def _finalizar_schema_localizacoes() -> None:
 
 
 def upgrade() -> None:
+    # A revisao 0002 atual ja produz a estrutura final em bancos novos. As
+    # inspecoes abaixo existem para reparar bancos legados e exigem conexao real.
+    if context.is_offline_mode():
+        return
+
     vinculos = _carregar_vinculos()
     _preparar_schema_localizacoes()
     _criar_tabela_se_ausente()
