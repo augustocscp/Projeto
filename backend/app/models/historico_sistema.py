@@ -7,6 +7,10 @@ from app.config import DATABASE_SCHEMA
 from app.database import Base
 
 
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class HistoricoSistema(Base):
     __tablename__ = "historico_sistema"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -15,4 +19,4 @@ class HistoricoSistema(Base):
     descricao: Mapped[str] = mapped_column(Text)
     usuario_id: Mapped[int | None] = mapped_column(ForeignKey(f"{DATABASE_SCHEMA}.usuarios.id"))
     dados_contexto: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    data_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    data_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

@@ -11,6 +11,7 @@ import unicodedata
 
 from alembic import context, op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 
 from app.config import DATABASE_SCHEMA
 
@@ -176,13 +177,20 @@ def _preparar_schema_localizacoes() -> None:
 
 
 def _garantir_localizacoes(
-    vinculos: tuple[tuple[str, str, str], ...],
+        vinculos: tuple[tuple[str, str, str], ...],
 ) -> dict[str, int]:
     bind = op.get_bind()
+    tabela = sa.table(
+        "localizacoes",
+        sa.column("id", sa.Integer()),
+        sa.column("codigo", sa.String()),
+        sa.column("nome", sa.String()),
+        sa.column("tipo", sa.String()),
+        sa.column("ativo", sa.Boolean()),
+        schema=DATABASE_SCHEMA,
+    )
     localizacoes = _mapa_unico(
-        bind.execute(
-            sa.text(f"SELECT id, nome FROM {DATABASE_SCHEMA}.localizacoes")
-        ).all(),
+        bind.execute(sa.select(tabela.c.id, tabela.c.nome)).all(),
         "localizacoes",
     )
     nomes_esperados = sorted({localizacao for localizacao, _, _ in vinculos})
@@ -193,45 +201,58 @@ def _garantir_localizacoes(
     ]
     if ausentes:
         bind.execute(
-            sa.text(
-                f"""
-                INSERT INTO {DATABASE_SCHEMA}.localizacoes (
-                    codigo,
-                    nome,
-                    tipo,
-                    ativo
-                )
-                VALUES (NULL, :nome, :tipo, true)
-                """
-            ),
+            sa.insert(tabela),
             [
-                {"nome": nome, "tipo": _classificar_tipo_localizacao(nome)}
+                {
+                    "codigo": None,
+                    "nome": nome,
+                    "tipo": _classificar_tipo_localizacao(nome),
+                    "ativo": True,
+                }
                 for nome in ausentes
             ],
         )
 
     return _mapa_unico(
-        bind.execute(
-            sa.text(f"SELECT id, nome FROM {DATABASE_SCHEMA}.localizacoes")
-        ).all(),
+        bind.execute(sa.select(tabela.c.id, tabela.c.nome)).all(),
         "localizacoes",
     )
 
 
 def _resolver_referencias(
-    vinculos: tuple[tuple[str, str, str], ...],
+        vinculos: tuple[tuple[str, str, str], ...],
 ) -> list[dict[str, int]]:
     bind = op.get_bind()
     localizacoes = _garantir_localizacoes(vinculos)
 
+    filiais_tabela = sa.table(
+        "filiais",
+        sa.column("id", sa.Integer()),
+        sa.column("empresa_id", sa.Integer()),
+        sa.column("nome", sa.String()),
+        schema=DATABASE_SCHEMA,
+    )
+    empresas = sa.table(
+        "empresas",
+        sa.column("id", sa.Integer()),
+        sa.column("nome", sa.String()),
+        schema=DATABASE_SCHEMA,
+    )
+    departamentos_tabela = sa.table(
+        "departamentos",
+        sa.column("id", sa.Integer()),
+        sa.column("codigo", sa.String()),
+        schema=DATABASE_SCHEMA,
+    )
+
     filial_rows = bind.execute(
-        sa.text(
-            f"""
-            SELECT filial.id, filial.nome, empresa.nome AS empresa_nome
-            FROM {DATABASE_SCHEMA}.filiais AS filial
-            JOIN {DATABASE_SCHEMA}.empresas AS empresa
-              ON empresa.id = filial.empresa_id
-            """
+        sa.select(
+            filiais_tabela.c.id,
+            filiais_tabela.c.nome,
+            empresas.c.nome.label("empresa_nome"),
+        ).join(
+            empresas,
+            empresas.c.id == filiais_tabela.c.empresa_id,
         )
     ).all()
     filiais = _mapa_unico(
@@ -245,7 +266,7 @@ def _resolver_referencias(
     departamentos = {
         codigo.upper(): identificador
         for identificador, codigo in bind.execute(
-            sa.text(f"SELECT id, codigo FROM {DATABASE_SCHEMA}.departamentos")
+            sa.select(departamentos_tabela.c.id, departamentos_tabela.c.codigo)
         ).all()
     }
 
@@ -275,38 +296,41 @@ def _resolver_referencias(
 
 
 def _inserir_vinculos(registros: list[dict[str, int]]) -> None:
-    op.get_bind().execute(
-        sa.text(
-            f"""
-            INSERT INTO {DATABASE_SCHEMA}.localizacao_vinculos (
-                localizacao_id,
-                filial_id,
-                departamento_id,
-                ativo
-            )
-            VALUES (
-                :localizacao_id,
-                :filial_id,
-                :departamento_id,
-                true
-            )
-            ON CONFLICT (localizacao_id, filial_id, departamento_id) DO UPDATE
-            SET ativo = true,
-                atualizado_em = now()
-            """
-        ),
-        registros,
+    tabela = sa.table(
+        "localizacao_vinculos",
+        sa.column("localizacao_id", sa.Integer()),
+        sa.column("filial_id", sa.Integer()),
+        sa.column("departamento_id", sa.Integer()),
+        sa.column("ativo", sa.Boolean()),
+        sa.column("atualizado_em", sa.DateTime(timezone=True)),
+        schema=DATABASE_SCHEMA,
     )
+    comando = postgresql_insert(tabela).values(ativo=True)
+    comando = comando.on_conflict_do_update(
+        index_elements=[
+            tabela.c.localizacao_id,
+            tabela.c.filial_id,
+            tabela.c.departamento_id,
+        ],
+        set_={"ativo": True, "atualizado_em": sa.func.now()},
+    )
+    op.get_bind().execute(comando, registros)
 
 
 def _validar_resultado(registros: list[dict[str, int]]) -> None:
+    tabela = sa.table(
+        "localizacao_vinculos",
+        sa.column("localizacao_id", sa.Integer()),
+        sa.column("filial_id", sa.Integer()),
+        sa.column("departamento_id", sa.Integer()),
+        schema=DATABASE_SCHEMA,
+    )
     existentes = set(
         op.get_bind().execute(
-            sa.text(
-                f"""
-                SELECT localizacao_id, filial_id, departamento_id
-                FROM {DATABASE_SCHEMA}.localizacao_vinculos
-                """
+            sa.select(
+                tabela.c.localizacao_id,
+                tabela.c.filial_id,
+                tabela.c.departamento_id,
             )
         ).tuples()
     )
@@ -339,8 +363,8 @@ def _finalizar_schema_localizacoes() -> None:
 
     if colunas_legadas:
         for restricao in inspector.get_unique_constraints(
-            "localizacoes",
-            schema=DATABASE_SCHEMA,
+                "localizacoes",
+                schema=DATABASE_SCHEMA,
         ):
             if colunas_legadas & set(restricao["column_names"]):
                 op.drop_constraint(
@@ -351,8 +375,8 @@ def _finalizar_schema_localizacoes() -> None:
                 )
 
         for chave in inspector.get_foreign_keys(
-            "localizacoes",
-            schema=DATABASE_SCHEMA,
+                "localizacoes",
+                schema=DATABASE_SCHEMA,
         ):
             if colunas_legadas & set(chave["constrained_columns"]):
                 op.drop_constraint(
@@ -363,8 +387,8 @@ def _finalizar_schema_localizacoes() -> None:
                 )
 
         for indice in inspector.get_indexes(
-            "localizacoes",
-            schema=DATABASE_SCHEMA,
+                "localizacoes",
+                schema=DATABASE_SCHEMA,
         ):
             if indice.get("duplicates_constraint"):
                 continue
@@ -383,8 +407,8 @@ def _finalizar_schema_localizacoes() -> None:
         schema=DATABASE_SCHEMA,
     )
     if not any(
-        restricao["column_names"] == ["nome"]
-        for restricao in restricoes_unicas
+            restricao["column_names"] == ["nome"]
+            for restricao in restricoes_unicas
     ):
         op.create_unique_constraint(
             "uq_localizacoes_nome",
@@ -412,4 +436,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     # A tabela pode ter sido criada originalmente pela 0002. Preserva-se o dado
     # para que o downgrade da correcao nunca remova uma estrutura preexistente.
-    pass
+    return None
