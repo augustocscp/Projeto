@@ -761,50 +761,329 @@ class _PatrimonioDetailDialog extends StatelessWidget {
     required this.historico,
   });
 
-  Widget _linha(String label, Object? value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 5),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 190,
-          child: Text(
-            label,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
+  static const _labelColor = Color(0xFF496273);
+  static const _titleColor = Color(0xFF17364D);
+
+  Map<String, dynamic>? _map(String key) {
+    final value = patrimonio[key];
+    return value is Map<String, dynamic> ? value : null;
+  }
+
+  String _text(Object? value) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? '-' : text;
+  }
+
+  String _referenceName(String key) => _text(_map(key)?['nome']);
+
+  String _referenceCode(String key) => _text(_map(key)?['codigo']);
+
+  DateTime? _parseDate(Object? value) {
+    if (value == null) return null;
+    return DateTime.tryParse(value.toString());
+  }
+
+  String _date(Object? value, {bool withTime = false}) {
+    final parsed = _parseDate(value);
+    if (parsed == null) return _text(value);
+    if (!withTime) return DateFormat('dd/MM/yyyy', 'pt_BR').format(parsed);
+    return DateFormat('dd/MM/yyyy HH:mm', 'pt_BR').format(parsed.toLocal());
+  }
+
+  String _money(Object? value) {
+    if (value == null) return '-';
+    final number = value is num
+        ? value
+        : num.tryParse(value.toString().replaceAll(',', '.'));
+    if (number == null) return _text(value);
+    return NumberFormat.currency(locale: 'pt_BR', symbol: r'R$').format(number);
+  }
+
+  String _percentage(Object? value) {
+    if (value == null) return '-';
+    final number = value is num ? value : num.tryParse(value.toString());
+    if (number == null) return _text(value);
+    return '${NumberFormat.decimalPattern('pt_BR').format(number)}%';
+  }
+
+  String _humanize(Object? value) {
+    final source = _text(value);
+    if (source == '-') return source;
+    final words = source.toLowerCase().replaceAll('_', ' ');
+    return '${words[0].toUpperCase()}${words.substring(1)}';
+  }
+
+  List<_HistoryEvent> _historyEvents() {
+    final events = <_HistoryEvent>[];
+    for (final raw in historico['sistema'] as List<dynamic>? ?? const []) {
+      if (raw is! Map<String, dynamic>) continue;
+      events.add(
+        _HistoryEvent(
+          date: _parseDate(raw['data_hora']),
+          title: _humanize(raw['tipo_evento']),
+          detail: _text(raw['descricao']),
         ),
-        Expanded(child: SelectableText(value?.toString() ?? '-')),
-      ],
-    ),
-  );
+      );
+    }
+    for (final raw
+        in historico['controle_patrimonial'] as List<dynamic>? ?? const []) {
+      if (raw is! Map<String, dynamic>) continue;
+      final previous = _text(raw['valor_anterior']);
+      final next = _text(raw['valor_novo']);
+      events.add(
+        _HistoryEvent(
+          date: _parseDate(raw['data_hora']),
+          title: 'Alteração em ${_humanize(raw['campo_alterado'])}',
+          detail: '$previous para $next',
+        ),
+      );
+    }
+    for (final raw in historico['contabil'] as List<dynamic>? ?? const []) {
+      if (raw is! Map<String, dynamic>) continue;
+      events.add(
+        _HistoryEvent(
+          date: _parseDate(raw['consultado_em']),
+          title: 'Atualização contábil',
+          detail:
+              '${_humanize(raw['campo_alterado'])}: '
+              '${_text(raw['valor_anterior'])} para ${_text(raw['valor_novo'])}',
+        ),
+      );
+    }
+    events.sort((a, b) {
+      if (a.date == null && b.date == null) return 0;
+      if (a.date == null) return 1;
+      if (b.date == null) return -1;
+      return b.date!.compareTo(a.date!);
+    });
+    return events;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final contabil = patrimonio['contabil'] as Map<String, dynamic>?;
-    final responsavel = patrimonio['responsavel'] as Map<String, dynamic>?;
-    final eventos = <dynamic>[
-      ...(historico['contabil'] as List<dynamic>? ?? []),
-      ...(historico['controle_patrimonial'] as List<dynamic>? ?? []),
-      ...(historico['sistema'] as List<dynamic>? ?? []),
+    final contabil = _map('contabil');
+    final events = _historyEvents();
+    final screenSize = MediaQuery.sizeOf(context);
+    final compact = screenSize.width < 600;
+    final horizontalInset = compact ? 12.0 : 24.0;
+    final verticalInset = compact ? 12.0 : 20.0;
+    final dialogWidth = math.min(
+      screenSize.width - (horizontalInset * 2),
+      1420.0,
+    );
+    final dialogHeight = math.min(
+      screenSize.height - (verticalInset * 2),
+      900.0,
+    );
+
+    final identification = [
+      _DetailFieldData('Nº do patrimônio', patrimonio['numero_tombo']),
+      _DetailFieldData('Cód. Protheus', patrimonio['codigo_protheus']),
+      _DetailFieldData('Nº do item', patrimonio['numero_item']),
+      _DetailFieldData('Nº da plaqueta', patrimonio['numero_plaqueta_fisica']),
+      _DetailFieldData('Descrição', patrimonio['descricao'], span: 4),
+      _DetailFieldData('Categoria', _referenceName('categoria')),
+      _DetailFieldData('Marca', patrimonio['marca']),
+      _DetailFieldData('Modelo', patrimonio['modelo']),
+      _DetailFieldData('Fabricante', patrimonio['fabricante']),
+      _DetailFieldData('Número de série', patrimonio['numero_serie'], span: 2),
+      _DetailFieldData('Código SAP', patrimonio['codigo_sap']),
+      _DetailFieldData('Código do produto', patrimonio['codigo_produto']),
+      _DetailFieldData(
+        'Patrimônio anterior',
+        patrimonio['numero_patrimonio_anterior'],
+      ),
+      _DetailFieldData(
+        'Possui garantia',
+        patrimonio['possui_garantia'] == true ? 'Sim' : 'Não',
+      ),
+      _DetailFieldData(
+        'Fim da garantia',
+        _date(patrimonio['data_fim_garantia']),
+      ),
     ];
+
+    final location = [
+      _DetailFieldData('Empresa', _referenceName('empresa')),
+      _DetailFieldData('Filial', _referenceName('filial')),
+      _DetailFieldData('Cidade', _referenceName('cidade')),
+      _DetailFieldData('Departamento', _referenceName('departamento')),
+      _DetailFieldData('Localização', _referenceName('localizacao'), span: 2),
+      _DetailFieldData('Centro de custo', contabil?['centro_custo']),
+    ];
+
+    final responsibility = [
+      _DetailFieldData('Responsável', _referenceName('responsavel'), span: 2),
+      _DetailFieldData('Matrícula / RE', _referenceCode('responsavel')),
+      _DetailFieldData('Situação', _referenceName('situacao')),
+      _DetailFieldData(
+        'Estado de conservação',
+        _referenceName('estado_conservacao'),
+      ),
+      _DetailFieldData('Destinação', _referenceName('destinacao')),
+      _DetailFieldData(
+        'Status do registro',
+        patrimonio['ativo'] == true ? 'Ativo' : 'Inativo',
+      ),
+      _DetailFieldData(
+        'Data da baixa',
+        _date(patrimonio['data_baixa_origem'], withTime: true),
+      ),
+      _DetailFieldData('Observação', patrimonio['observacao'], span: 4),
+    ];
+
+    final accounting = contabil == null
+        ? const <_DetailFieldData>[]
+        : [
+            _DetailFieldData('Nota fiscal', contabil['numero_nota_fiscal']),
+            _DetailFieldData('Série', contabil['serie_nota_fiscal']),
+            _DetailFieldData(
+              'Data da nota',
+              _date(contabil['data_nota_fiscal']),
+            ),
+            _DetailFieldData('Cód. fornecedor', contabil['codigo_fornecedor']),
+            _DetailFieldData('Fornecedor', contabil['fornecedor'], span: 2),
+            _DetailFieldData(
+              'Valor de aquisição',
+              _money(contabil['valor_aquisicao']),
+            ),
+            _DetailFieldData('ICMS', _money(contabil['icms'])),
+            _DetailFieldData('Valor atual', _money(contabil['valor_atual'])),
+            _DetailFieldData(
+              'Depreciação acumulada',
+              _money(contabil['depreciacao_acumulada']),
+            ),
+            _DetailFieldData(
+              'Depreciação mensal',
+              _money(contabil['depreciacao_mensal']),
+            ),
+            _DetailFieldData(
+              'Percentual de depreciação',
+              _percentage(contabil['percentual_depreciacao']),
+            ),
+            _DetailFieldData('Conta contábil', contabil['conta_contabil']),
+            _DetailFieldData(
+              'Início da depreciação',
+              _date(contabil['inicio_depreciacao']),
+            ),
+            _DetailFieldData(
+              'Fim da depreciação',
+              _date(contabil['fim_depreciacao']),
+            ),
+            _DetailFieldData(
+              'Data da baixa (SN1)',
+              _date(contabil['data_baixa_sn1']),
+            ),
+            _DetailFieldData(
+              'Data da baixa (SN3)',
+              _date(contabil['data_baixa_sn3']),
+            ),
+          ];
+
+    final integration = [
+      _DetailFieldData(
+        'Status no Protheus',
+        _humanize(patrimonio['protheus_status']),
+      ),
+      _DetailFieldData(
+        'Última consulta ao Protheus',
+        _date(patrimonio['protheus_consultado_em'], withTime: true),
+      ),
+      _DetailFieldData(
+        'Origem dos dados contábeis',
+        patrimonio['contabil_em_cache'] == true
+            ? 'Cache local'
+            : 'Consulta atualizada',
+      ),
+    ];
+
     return Dialog(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 880, maxHeight: 760),
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: horizontalInset,
+        vertical: verticalInset,
+      ),
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: SizedBox(
+        width: dialogWidth,
+        height: dialogHeight,
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 18, 12, 12),
+              padding: EdgeInsets.fromLTRB(
+                compact ? 18 : 24,
+                compact ? 16 : 18,
+                10,
+                compact ? 14 : 16,
+              ),
               child: Row(
                 children: [
-                  Expanded(
-                    child: Text(
-                      patrimonio['numero_tombo'] as String,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                      ),
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F6FC),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(
+                      Icons.inventory_2_outlined,
+                      color: _accent,
+                      size: 23,
                     ),
                   ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Dados completos do patrimônio',
+                          style: TextStyle(
+                            color: _titleColor,
+                            fontSize: 19,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Patrimônio ${_text(patrimonio['numero_tombo'])}',
+                          style: const TextStyle(
+                            color: _labelColor,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!compact)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8F6FC),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.lock_outline, size: 16, color: _accent),
+                          SizedBox(width: 6),
+                          Text(
+                            'Somente leitura',
+                            style: TextStyle(
+                              color: Color(0xFF1478B8),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(width: 6),
                   IconButton(
                     tooltip: 'Fechar',
                     onPressed: () => Navigator.pop(context),
@@ -815,36 +1094,93 @@ class _PatrimonioDetailDialog extends StatelessWidget {
             ),
             const Divider(height: 1),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const _SectionTitle('Identificação'),
-                    _linha('Código Protheus', patrimonio['codigo_protheus']),
-                    _linha('Nº do Item', patrimonio['numero_item']),
-                    _linha('Descrição', patrimonio['descricao']),
-                    _linha('Número de Série', patrimonio['numero_serie']),
-                    _linha('Responsável', responsavel?['nome']),
-                    const _SectionTitle('Contabilidade'),
-                    if (contabil == null)
-                      const Text('Nenhum snapshot contábil disponível.')
-                    else ...[
-                      _linha('Nota Fiscal', contabil['numero_nota_fiscal']),
-                      _linha('Série', contabil['serie_nota_fiscal']),
-                      _linha('Valor de Aquisição', contabil['valor_aquisicao']),
-                      _linha(
-                        'Depreciação Acumulada',
-                        contabil['depreciacao_acumulada'],
-                      ),
-                      _linha('Valor Atual', contabil['valor_atual']),
-                      _linha('Conta Contábil', contabil['conta_contabil']),
-                      _linha('Centro de Custo', contabil['centro_custo']),
-                      _linha('Última consulta', contabil['consultado_em']),
-                    ],
-                    const _SectionTitle('Histórico'),
-                    _linha('Eventos registrados', eventos.length),
-                  ],
+              child: ColoredBox(
+                color: const Color(0xFFF8FAFC),
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.all(compact ? 16 : 22),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final useSidebar = constraints.maxWidth >= 1040;
+                      final mainContent = Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _DetailSection(
+                            title: 'Identificação',
+                            fields: identification,
+                          ),
+                          _DetailSection(
+                            title: 'Localização',
+                            fields: location,
+                          ),
+                          _DetailSection(
+                            title: 'Responsabilidade',
+                            fields: responsibility,
+                          ),
+                          _DetailSection(
+                            title: 'Financeiro',
+                            fields: accounting,
+                            emptyMessage: 'Nenhum dado contábil disponível para este patrimônio.',
+                          ),
+                          _DetailSection(
+                            title: 'Integração Protheus',
+                            fields: integration,
+                          ),
+                          _HistoryTable(events: events),
+                        ],
+                      );
+                      final sidebar = _DetailSidebar(
+                        active: patrimonio['ativo'] == true,
+                        category: _referenceName('categoria'),
+                        location: _referenceName('localizacao'),
+                        city: _referenceName('cidade'),
+                        createdAt: _date(
+                          patrimonio['criado_em'],
+                          withTime: true,
+                        ),
+                        updatedAt: _date(
+                          patrimonio['atualizado_em'],
+                          withTime: true,
+                        ),
+                        accountingUpdatedAt: _date(
+                          contabil?['consultado_em'],
+                          withTime: true,
+                        ),
+                        accountingFromCache:
+                            patrimonio['contabil_em_cache'] == true,
+                        systemEvents:
+                            (historico['sistema'] as List<dynamic>? ?? const [])
+                                .length,
+                        controlEvents:
+                            (historico['controle_patrimonial']
+                                        as List<dynamic>? ??
+                                    const [])
+                                .length,
+                        accountingEvents:
+                            (historico['contabil'] as List<dynamic>? ??
+                                    const [])
+                                .length,
+                      );
+
+                      if (!useSidebar) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            mainContent,
+                            const SizedBox(height: 22),
+                            sidebar,
+                          ],
+                        );
+                      }
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: mainContent),
+                          const SizedBox(width: 22),
+                          SizedBox(width: 286, child: sidebar),
+                        ],
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
@@ -853,6 +1189,522 @@ class _PatrimonioDetailDialog extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DetailFieldData {
+  final String label;
+  final Object? value;
+  final int span;
+
+  const _DetailFieldData(this.label, this.value, {this.span = 1});
+}
+
+class _DetailSection extends StatelessWidget {
+  final String title;
+  final List<_DetailFieldData> fields;
+  final String? emptyMessage;
+
+  const _DetailSection({
+    required this.title,
+    required this.fields,
+    this.emptyMessage,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 22),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              title.toUpperCase(),
+              style: const TextStyle(
+                color: Color(0xFF1478B8),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(child: Divider(color: Color(0xFFD9E4EB))),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (fields.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: const Color(0xFFD9E4EB)),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              emptyMessage ?? 'Nenhuma informação disponível.',
+              style: const TextStyle(color: Color(0xFF607584)),
+            ),
+          )
+        else
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const gap = 12.0;
+              final columns = constraints.maxWidth >= 820
+                  ? 4
+                  : constraints.maxWidth >= 500
+                  ? 2
+                  : 1;
+              final cellWidth =
+                  (constraints.maxWidth - (gap * (columns - 1))) / columns;
+              return Wrap(
+                spacing: gap,
+                runSpacing: 10,
+                children: fields.map((field) {
+                  final span = math.min(field.span, columns);
+                  return SizedBox(
+                    width: (cellWidth * span) + (gap * (span - 1)),
+                    child: _ReadOnlyField(field: field),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+      ],
+    ),
+  );
+}
+
+class _ReadOnlyField extends StatelessWidget {
+  final _DetailFieldData field;
+
+  const _ReadOnlyField({required this.field});
+
+  @override
+  Widget build(BuildContext context) {
+    final value = field.value?.toString().trim() ?? '';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 1, bottom: 4),
+          child: Text(
+            field.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF3F5A6C),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(minHeight: 40),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0F5F8),
+            border: Border.all(color: const Color(0xFFD5E1E8)),
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: SelectableText(
+            value.isEmpty ? '-' : value,
+            style: const TextStyle(
+              color: Color(0xFF405B6D),
+              fontSize: 13,
+              height: 1.25,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HistoryEvent {
+  final DateTime? date;
+  final String title;
+  final String detail;
+
+  const _HistoryEvent({
+    required this.date,
+    required this.title,
+    required this.detail,
+  });
+}
+
+class _HistoryTable extends StatelessWidget {
+  final List<_HistoryEvent> events;
+
+  const _HistoryTable({required this.events});
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          const Text(
+            'CONTROLE E LOG',
+            style: TextStyle(
+              color: Color(0xFF1478B8),
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Expanded(child: Divider(color: Color(0xFFD9E4EB))),
+        ],
+      ),
+      const SizedBox(height: 10),
+      if (events.isEmpty)
+        const Text(
+          'Nenhum evento registrado para este patrimônio.',
+          style: TextStyle(color: Color(0xFF607584)),
+        )
+      else
+        LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: math.max(constraints.maxWidth, 720),
+              child: Table(
+                columnWidths: const {
+                  0: FixedColumnWidth(142),
+                  1: FlexColumnWidth(1.3),
+                  2: FlexColumnWidth(2.2),
+                },
+                border: TableBorder.all(color: const Color(0xFFD9E4EB)),
+                children: [
+                  const TableRow(
+                    decoration: BoxDecoration(color: Color(0xFFEAF1F5)),
+                    children: [
+                      _TableCell('Data', header: true),
+                      _TableCell('Evento', header: true),
+                      _TableCell('Detalhes', header: true),
+                    ],
+                  ),
+                  ...events.asMap().entries.map((entry) {
+                    final event = entry.value;
+                    return TableRow(
+                      decoration: BoxDecoration(
+                        color: entry.key.isEven
+                            ? Colors.white
+                            : const Color(0xFFFAFCFD),
+                      ),
+                      children: [
+                        _TableCell(
+                          event.date == null
+                              ? '-'
+                              : DateFormat(
+                                  'dd/MM/yyyy HH:mm',
+                                  'pt_BR',
+                                ).format(event.date!.toLocal()),
+                        ),
+                        _TableCell(event.title),
+                        _TableCell(event.detail),
+                      ],
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
+}
+
+class _TableCell extends StatelessWidget {
+  final String text;
+  final bool header;
+
+  const _TableCell(this.text, {this.header = false});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+    child: Text(
+      text,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: const Color(0xFF375469),
+        fontSize: 12,
+        fontWeight: header ? FontWeight.w700 : FontWeight.w400,
+      ),
+    ),
+  );
+}
+
+class _DetailSidebar extends StatelessWidget {
+  final bool active;
+  final String category;
+  final String location;
+  final String city;
+  final String createdAt;
+  final String updatedAt;
+  final String accountingUpdatedAt;
+  final bool accountingFromCache;
+  final int systemEvents;
+  final int controlEvents;
+  final int accountingEvents;
+
+  const _DetailSidebar({
+    required this.active,
+    required this.category,
+    required this.location,
+    required this.city,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.accountingUpdatedAt,
+    required this.accountingFromCache,
+    required this.systemEvents,
+    required this.controlEvents,
+    required this.accountingEvents,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final panels = <Widget>[
+      _SidebarPanel(
+        title: 'Resumo do patrimônio',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: active
+                    ? const Color(0xFFE1F7EA)
+                    : const Color(0xFFFCE8E8),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.circle,
+                    size: 10,
+                    color: active
+                        ? const Color(0xFF14A55A)
+                        : const Color(0xFFC84545),
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    active ? 'Ativo' : 'Inativo',
+                    style: TextStyle(
+                      color: active
+                          ? const Color(0xFF148047)
+                          : const Color(0xFFA93434),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SidebarInfo(
+              icon: Icons.category_outlined,
+              value: category,
+              label: 'Categoria',
+            ),
+            const SizedBox(height: 14),
+            _SidebarInfo(
+              icon: Icons.location_on_outlined,
+              value: location,
+              label: city == '-' ? 'Localização' : city,
+            ),
+          ],
+        ),
+      ),
+      _SidebarPanel(
+        title: 'Atualizações',
+        child: Column(
+          children: [
+            _SidebarInfo(
+              icon: Icons.edit_calendar_outlined,
+              value: updatedAt,
+              label: 'Última atualização',
+            ),
+            const SizedBox(height: 14),
+            _SidebarInfo(
+              icon: Icons.add_task_outlined,
+              value: createdAt,
+              label: 'Cadastro',
+            ),
+            const SizedBox(height: 14),
+            _SidebarInfo(
+              icon: Icons.sync_outlined,
+              value: accountingUpdatedAt,
+              label: accountingFromCache
+                  ? 'Consulta contábil em cache'
+                  : 'Consulta contábil atualizada',
+            ),
+          ],
+        ),
+      ),
+      _SidebarPanel(
+        title: 'Histórico (${systemEvents + controlEvents + accountingEvents})',
+        child: Column(
+          children: [
+            _HistoryCount(label: 'Sistema', count: systemEvents),
+            const SizedBox(height: 10),
+            _HistoryCount(label: 'Controle patrimonial', count: controlEvents),
+            const SizedBox(height: 10),
+            _HistoryCount(label: 'Contabilidade', count: accountingEvents),
+          ],
+        ),
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 720) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var index = 0; index < panels.length; index++) ...[
+                if (index > 0) const SizedBox(width: 14),
+                Expanded(child: panels[index]),
+              ],
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var index = 0; index < panels.length; index++) ...[
+              if (index > 0) const SizedBox(height: 14),
+              panels[index],
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _SidebarPanel extends StatelessWidget {
+  final String title;
+  final Widget child;
+
+  const _SidebarPanel({required this.title, required this.child});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      border: Border.all(color: const Color(0xFFD9E4EB)),
+      borderRadius: BorderRadius.circular(7),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: Color(0xFF17364D),
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 14),
+        child,
+      ],
+    ),
+  );
+}
+
+class _SidebarInfo extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final String label;
+
+  const _SidebarInfo({
+    required this.icon,
+    required this.value,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: const Color(0xFFE8F6FC),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Icon(icon, color: _accent, size: 20),
+      ),
+      const SizedBox(width: 11),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              value,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF294A61),
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Color(0xFF6A7F8D), fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+class _HistoryCount extends StatelessWidget {
+  final String label;
+  final int count;
+
+  const _HistoryCount({required this.label, required this.count});
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(
+        child: Text(
+          label,
+          style: const TextStyle(color: Color(0xFF526A79), fontSize: 12),
+        ),
+      ),
+      Container(
+        constraints: const BoxConstraints(minWidth: 28),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFFEEF4F7),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          '$count',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Color(0xFF36566B),
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    ],
+  );
 }
 
 class _PatrimonioFormDialog extends StatefulWidget {

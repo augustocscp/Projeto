@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'screens/home_screen.dart';
@@ -9,7 +10,9 @@ import 'theme/app_theme.dart';
 // Desenvolvimento: altere para false para voltar a exigir login Microsoft.
 const bool _ignorarLoginEmDesenvolvimento = true;
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('pt_BR');
   runApp(const PatrimonioApp());
 }
 

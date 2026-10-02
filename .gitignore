@@ -26,4 +26,5 @@ coverage/
 *.swp
 
 # Relatorios locais
-RELATORIO_ALTERACOES_BANCO_E_LOCALIZACOES.md
+RELATORIO*.md
+.claude/CLAUDE.md
