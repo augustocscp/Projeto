@@ -7,6 +7,7 @@ Create Date: 2026-09-23
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 
 from app.config import DATABASE_SCHEMA
 
@@ -14,7 +15,6 @@ revision = "0004"
 down_revision = "0003"
 branch_labels = None
 depends_on = None
-
 
 DOMINIOS = {
     "estados_conservacao": (
@@ -77,20 +77,31 @@ def _criar_tabela_dominio(nome: str) -> None:
 def _seed_dominios() -> None:
     bind = op.get_bind()
     for tabela, registros in DOMINIOS.items():
+        dominio = sa.table(
+            tabela,
+            sa.column("codigo", sa.String()),
+            sa.column("nome", sa.String()),
+            sa.column("descricao", sa.Text()),
+            sa.column("ativo", sa.Boolean()),
+            sa.column("ordem_exibicao", sa.Integer()),
+            sa.column("atualizado_em", sa.DateTime(timezone=True)),
+            schema=DATABASE_SCHEMA,
+        )
+        comando = postgresql_insert(dominio).values(
+            descricao=None,
+            ativo=True,
+        )
+        comando = comando.on_conflict_do_update(
+            index_elements=[dominio.c.codigo],
+            set_={
+                "nome": comando.excluded.nome,
+                "ativo": True,
+                "ordem_exibicao": comando.excluded.ordem_exibicao,
+                "atualizado_em": sa.func.now(),
+            },
+        )
         bind.execute(
-            sa.text(
-                f"""
-                INSERT INTO {DATABASE_SCHEMA}.{tabela}
-                    (codigo, nome, descricao, ativo, ordem_exibicao)
-                VALUES
-                    (:codigo, :nome, NULL, true, :ordem_exibicao)
-                ON CONFLICT (codigo) DO UPDATE
-                SET nome = EXCLUDED.nome,
-                    ativo = true,
-                    ordem_exibicao = EXCLUDED.ordem_exibicao,
-                    atualizado_em = now()
-                """
-            ),
+            comando,
             [
                 {"codigo": codigo, "nome": nome, "ordem_exibicao": ordem}
                 for ordem, (codigo, nome) in enumerate(registros, start=1)

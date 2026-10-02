@@ -6,6 +6,7 @@ Revises: 0007
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 
 from app.config import DATABASE_SCHEMA
 
@@ -55,31 +56,61 @@ REFERENCIAS = {
 def _aplicar(dominios: dict[str, tuple[tuple[str, str], ...]]) -> None:
     bind = op.get_bind()
     for tabela, registros in dominios.items():
-        for ordem, (codigo, nome) in enumerate(registros, start=1):
-            colunas = "codigo, nome, descricao, ativo"
-            valores = ":codigo, :nome, NULL, true"
-            atualizacao = "nome = EXCLUDED.nome, ativo = true, atualizado_em = now()"
+        dominio = sa.table(
+            tabela,
+            sa.column("id", sa.Integer()),
+            sa.column("codigo", sa.String()),
+            sa.column("nome", sa.String()),
+            sa.column("descricao", sa.Text()),
+            sa.column("ativo", sa.Boolean()),
+            sa.column("ordem_exibicao", sa.Integer()),
+            sa.column("atualizado_em", sa.DateTime(timezone=True)),
+            schema=DATABASE_SCHEMA,
+        )
+        coluna_fk = REFERENCIAS[tabela]
+        patrimonios = sa.table(
+            "patrimonios",
+            sa.column(coluna_fk, sa.Integer()),
+            schema=DATABASE_SCHEMA,
+        )
+
+        if registros:
+            valores = [
+                {
+                    "codigo": codigo,
+                    "nome": nome,
+                    "descricao": None,
+                    "ativo": True,
+                    **(
+                        {"ordem_exibicao": ordem}
+                        if tabela != "categorias_patrimoniais"
+                        else {}
+                    ),
+                }
+                for ordem, (codigo, nome) in enumerate(registros, start=1)
+            ]
+            comando = postgresql_insert(dominio)
+            atualizacao = {
+                "nome": comando.excluded.nome,
+                "ativo": True,
+                "atualizado_em": sa.func.now(),
+            }
             if tabela != "categorias_patrimoniais":
-                colunas += ", ordem_exibicao"
-                valores += ", :ordem"
-                atualizacao += ", ordem_exibicao = EXCLUDED.ordem_exibicao"
-            bind.execute(sa.text(
-                f"INSERT INTO {DATABASE_SCHEMA}.{tabela} ({colunas}) VALUES ({valores}) "
-                f"ON CONFLICT (codigo) DO UPDATE SET {atualizacao}"
-            ), {"codigo": codigo, "nome": nome, "ordem": ordem})
+                atualizacao["ordem_exibicao"] = comando.excluded.ordem_exibicao
+            comando = comando.on_conflict_do_update(
+                index_elements=[dominio.c.codigo],
+                set_=atualizacao,
+            )
+            bind.execute(comando, valores)
 
         codigos = tuple(codigo for codigo, _ in registros)
-        coluna_fk = REFERENCIAS[tabela]
-        filtro = "d.codigo NOT IN :codigos AND " if codigos else ""
-        comando = sa.text(
-            f"DELETE FROM {DATABASE_SCHEMA}.{tabela} d WHERE {filtro}NOT EXISTS ("
-            f"SELECT 1 FROM {DATABASE_SCHEMA}.patrimonios p WHERE p.{coluna_fk} = d.id)"
+        sem_referencia = ~sa.exists(
+            sa.select(1).where(patrimonios.c[coluna_fk] == dominio.c.id)
         )
+        filtro = sem_referencia
         if codigos:
-            comando = comando.bindparams(sa.bindparam("codigos", expanding=True))
-            bind.execute(comando, {"codigos": codigos})
-        else:
-            bind.execute(comando)
+            filtro = sa.and_(dominio.c.codigo.not_in(codigos), sem_referencia)
+        bind.execute(sa.delete(dominio).where(filtro))
 
 
 def upgrade() -> None:

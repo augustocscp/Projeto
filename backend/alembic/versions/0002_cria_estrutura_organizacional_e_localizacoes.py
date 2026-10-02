@@ -17,7 +17,6 @@ down_revision = "0001"
 branch_labels = None
 depends_on = None
 
-
 LOCALIZACAO_VINCULOS = (
     ("TERMINAL RIACHO FUNDO I", "Terminal", "GOPE"),
     ("SALA TAMBOR FREIO", "Garagem Recanto", "GSMA"),
@@ -387,81 +386,105 @@ def downgrade() -> None:
 
 
 def _seed_initial_data() -> None:
-    op.execute(
-        f"""
-        INSERT INTO {DATABASE_SCHEMA}.empresas (nome, descricao, cnpj, ativo)
-        VALUES ('Urbi mobilidade', NULL, NULL, true)
-        ON CONFLICT (nome) DO NOTHING;
-        """
+    bind = op.get_bind()
+    empresas = sa.table(
+        "empresas",
+        sa.column("id", sa.Integer()),
+        sa.column("nome", sa.String()),
+        sa.column("descricao", sa.Text()),
+        sa.column("cnpj", sa.String()),
+        sa.column("ativo", sa.Boolean()),
+        schema=DATABASE_SCHEMA,
+    )
+    cidades = sa.table(
+        "cidades",
+        sa.column("id", sa.Integer()),
+        sa.column("nome", sa.String()),
+        sa.column("uf", sa.String()),
+        sa.column("codigo_ibge", sa.String()),
+        sa.column("ativo", sa.Boolean()),
+        schema=DATABASE_SCHEMA,
+    )
+    filiais = sa.table(
+        "filiais",
+        sa.column("empresa_id", sa.Integer()),
+        sa.column("cidade_id", sa.Integer()),
+        sa.column("codigo", sa.String()),
+        sa.column("nome", sa.String()),
+        sa.column("tipo_unidade", sa.String()),
+        sa.column("ativo", sa.Boolean()),
+        schema=DATABASE_SCHEMA,
+    )
+    departamentos = sa.table(
+        "departamentos",
+        sa.column("codigo", sa.String()),
+        sa.column("nome", sa.String()),
+        sa.column("descricao", sa.Text()),
+        sa.column("ativo", sa.Boolean()),
+        schema=DATABASE_SCHEMA,
     )
 
-    op.execute(
-        f"""
-        INSERT INTO {DATABASE_SCHEMA}.cidades (nome, uf, codigo_ibge, ativo)
-        VALUES ('Brasilia', 'DF', NULL, true)
-        ON CONFLICT (nome, uf) DO NOTHING;
-        """
+    bind.execute(
+        postgresql_insert(empresas)
+        .values(nome="Urbi mobilidade", descricao=None, cnpj=None, ativo=True)
+        .on_conflict_do_nothing(index_elements=[empresas.c.nome])
+    )
+    bind.execute(
+        postgresql_insert(cidades)
+        .values(nome="Brasilia", uf="DF", codigo_ibge=None, ativo=True)
+        .on_conflict_do_nothing(index_elements=[cidades.c.nome, cidades.c.uf])
     )
 
-    op.execute(
-        f"""
-        WITH empresa AS (
-            SELECT id FROM {DATABASE_SCHEMA}.empresas WHERE nome = 'Urbi mobilidade'
-        ),
-        cidade AS (
-            SELECT id FROM {DATABASE_SCHEMA}.cidades WHERE nome = 'Brasilia' AND uf = 'DF'
-        ),
-        dados(nome, tipo_unidade) AS (
-            VALUES
-                ('Terminal', 'TERMINAL'),
-                ('Garagem Recanto', 'GARAGEM'),
-                ('Garagem Samambaia', 'GARAGEM'),
-                ('Escritorio Executivo', 'ESCRITORIO'),
-                ('Escritorio matriz', 'ESCRITORIO')
+    dados_filiais = sa.values(
+        sa.column("nome", sa.String()),
+        sa.column("tipo_unidade", sa.String()),
+        name="dados_filiais",
+    ).data(
+        (
+            ("Terminal", "TERMINAL"),
+            ("Garagem Recanto", "GARAGEM"),
+            ("Garagem Samambaia", "GARAGEM"),
+            ("Escritorio Executivo", "ESCRITORIO"),
+            ("Escritorio matriz", "ESCRITORIO"),
         )
-        INSERT INTO {DATABASE_SCHEMA}.filiais (
-            empresa_id,
-            cidade_id,
-            codigo,
-            nome,
-            tipo_unidade,
-            ativo
+    )
+    empresa_id = sa.select(empresas.c.id).where(
+        empresas.c.nome == "Urbi mobilidade"
+    ).scalar_subquery()
+    cidade_id = sa.select(cidades.c.id).where(
+        cidades.c.nome == "Brasilia",
+        cidades.c.uf == "DF",
+    ).scalar_subquery()
+    selecao_filiais = sa.select(
+        empresa_id,
+        cidade_id,
+        sa.null(),
+        dados_filiais.c.nome,
+        dados_filiais.c.tipo_unidade,
+        sa.true(),
+    ).select_from(dados_filiais)
+    bind.execute(
+        postgresql_insert(filiais)
+        .from_select(
+            ["empresa_id", "cidade_id", "codigo", "nome", "tipo_unidade", "ativo"],
+            selecao_filiais,
         )
-        SELECT empresa.id, cidade.id, NULL, dados.nome, dados.tipo_unidade, true
-        FROM dados
-        CROSS JOIN empresa
-        CROSS JOIN cidade
-        ON CONFLICT (empresa_id, nome) DO NOTHING;
-        """
+        .on_conflict_do_nothing(index_elements=[filiais.c.empresa_id, filiais.c.nome])
     )
 
-    op.execute(
-        f"""
-        WITH dados(codigo) AS (
-            VALUES
-                ('DCOL'),
-                ('DP'),
-                ('GADM'),
-                ('G&C'),
-                ('GDEN'),
-                ('GIPE'),
-                ('GMKT'),
-                ('GOPE'),
-                ('GPQS'),
-                ('GPVE'),
-                ('GRC'),
-                ('GPSN'),
-                ('GSMA'),
-                ('GSOR'),
-                ('GSUP'),
-                ('GTRA'),
-                ('GTSI')
+    codigos_departamentos = (
+        "DCOL", "DP", "GADM", "G&C", "GDEN", "GIPE", "GMKT", "GOPE",
+        "GPQS", "GPVE", "GRC", "GPSN", "GSMA", "GSOR", "GSUP", "GTRA", "GTSI",
+    )
+    bind.execute(
+        postgresql_insert(departamentos)
+        .values(
+            [
+                {"codigo": codigo, "nome": codigo, "descricao": None, "ativo": True}
+                for codigo in codigos_departamentos
+            ]
         )
-        INSERT INTO {DATABASE_SCHEMA}.departamentos (codigo, nome, descricao, ativo)
-        SELECT codigo, codigo, NULL, true
-        FROM dados
-        ON CONFLICT (codigo) DO NOTHING;
-        """
+        .on_conflict_do_nothing(index_elements=[departamentos.c.codigo])
     )
 
     localizacoes = sorted({nome for nome, _, _ in LOCALIZACAO_VINCULOS})

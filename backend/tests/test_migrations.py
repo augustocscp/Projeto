@@ -1,6 +1,12 @@
 import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+from uuid import uuid4
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy import func, inspect, select
 
 from app.config import validate_database_schema
@@ -14,20 +20,22 @@ from app.models.situacao_patrimonial import SituacaoPatrimonial
 
 
 def test_migrations_criam_estrutura_e_seeds(db):
-    tabelas = set(inspect(db.get_bind()).get_table_names(schema=os.environ["DATABASE_SCHEMA"]))
+    schema = os.environ["DATABASE_SCHEMA"]
+    inspector = inspect(db.get_bind())
+    tabelas = set(inspector.get_table_names(schema=schema))
     assert {
-        "categorias_patrimoniais",
-        "estados_conservacao",
-        "situacoes_patrimoniais",
-        "destinacoes_patrimoniais",
-        "responsaveis",
-        "patrimonios",
-        "integracao_bigquery_staging",
-        "patrimonios_contabeis",
-        "historico_contabil",
-        "historico_controle_patrimonial",
-        "historico_sistema",
-    } <= tabelas
+               "categorias_patrimoniais",
+               "estados_conservacao",
+               "situacoes_patrimoniais",
+               "destinacoes_patrimoniais",
+               "responsaveis",
+               "patrimonios",
+               "integracao_bigquery_staging",
+               "patrimonios_contabeis",
+               "historico_contabil",
+               "historico_controle_patrimonial",
+               "historico_sistema",
+           } <= tabelas
     assert db.scalar(select(func.count(CategoriaPatrimonial.id))) == 7
     estados_ativos = db.scalars(
         select(EstadoConservacao)
@@ -122,19 +130,78 @@ def test_migrations_criam_estrutura_e_seeds(db):
     assert total_vinculos == 172
     assert vinculos_distintos == 172
 
+    assert "patrimonio_numero_tombo_seq" in inspector.get_sequence_names(
+        schema=schema
+    )
+    assert db.execute(
+        sa.select(sa.literal_column("version_num")).select_from(
+            sa.table(
+                "alembic_version",
+                sa.column("version_num", sa.String()),
+                schema=schema,
+            )
+        )
+    ).scalar_one() == "0019"
+
+    namespaces = sa.table(
+        "pg_namespace",
+        sa.column("oid", sa.Integer()),
+        sa.column("nspname", sa.String()),
+        schema="pg_catalog",
+    )
+    classes = sa.table(
+        "pg_class",
+        sa.column("oid", sa.Integer()),
+        sa.column("relnamespace", sa.Integer()),
+        sa.column("relname", sa.String()),
+        schema="pg_catalog",
+    )
+    procedures = sa.table(
+        "pg_proc",
+        sa.column("pronamespace", sa.Integer()),
+        sa.column("proname", sa.String()),
+        schema="pg_catalog",
+    )
+    triggers = sa.table(
+        "pg_trigger",
+        sa.column("tgrelid", sa.Integer()),
+        sa.column("tgname", sa.String()),
+        sa.column("tgisinternal", sa.Boolean()),
+        schema="pg_catalog",
+    )
+    namespace_id = select(namespaces.c.oid).where(
+        namespaces.c.nspname == schema
+    ).scalar_subquery()
+    assert db.scalar(
+        select(func.count()).select_from(procedures).where(
+            procedures.c.pronamespace == namespace_id,
+            procedures.c.proname == "bloquear_mutacao_historico_sistema",
+        )
+    ) == 1
+    assert db.scalar(
+        select(func.count())
+        .select_from(triggers.join(classes, classes.c.oid == triggers.c.tgrelid))
+        .where(
+            classes.c.relnamespace == namespace_id,
+            classes.c.relname == "historico_sistema",
+            triggers.c.tgname == "trg_historico_sistema_append_only",
+            triggers.c.tgisinternal.is_(False),
+        )
+    ) == 1
+
 
 @pytest.mark.parametrize(
     "schema",
     (
-        "",
-        "1gadm",
-        "gadm.public",
-        "gadm-test",
-        "gadm test",
-        'gadm"',
-        "gadm;DROP_SCHEMA",
-        "gadm--comentario",
-        "a" * 64,
+            "",
+            "1gadm",
+            "gadm.public",
+            "gadm-test",
+            "gadm test",
+            'gadm"',
+            "gadm;DROP_SCHEMA",
+            "gadm--comentario",
+            "a" * 64,
     ),
 )
 def test_database_schema_invalido_e_rejeitado(schema):
@@ -149,8 +216,8 @@ def test_database_schema_valido_e_aceito(schema):
 
 def test_seeds_nao_possuem_codigos_duplicados(db):
     for model in (
-        EstadoConservacao,
-        SituacaoPatrimonial,
+            EstadoConservacao,
+            SituacaoPatrimonial,
     ):
         total = db.scalar(select(func.count(model.id)))
         distintos = db.scalar(select(func.count(func.distinct(model.codigo))))
@@ -171,4 +238,44 @@ def test_coordenacao_pertence_ao_escritorio_matriz(db):
         filial.tipo_unidade == "ESCRITORIO"
         and "matriz" in filial.nome.casefold()
         for filial in filiais
+    )
+
+
+def test_migrations_offline_usam_apenas_schema_configurado():
+    schema = f"gadm_offline_{uuid4().hex}"
+    backend_dir = Path(__file__).resolve().parents[1]
+    ambiente = os.environ.copy()
+    ambiente["DATABASE_SCHEMA"] = schema
+    ambiente["PYTHONIOENCODING"] = "utf-8"
+    resultado = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-c",
+            "alembic.ini",
+            "upgrade",
+            "head",
+            "--sql",
+        ],
+        cwd=backend_dir,
+        env=ambiente,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=120,
+        check=False,
+    )
+    assert resultado.returncode == 0, resultado.stderr
+
+    sql = resultado.stdout
+    sql_normalizado = sql.lower().replace('"', "")
+    create_schema = sql_normalizado.index(f"create schema if not exists {schema}")
+    version_table = sql_normalizado.index(f"{schema}.alembic_version")
+    assert create_schema < version_table
+    assert "gadm." not in sql_normalizado
+    assert "public." not in sql_normalizado
+    assert not re.search(
+        rf"create\s+(?:table|sequence)\s+(?!{re.escape(schema)}\.)",
+        sql_normalizado,
     )

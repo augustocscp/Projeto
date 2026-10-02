@@ -16,6 +16,10 @@ down_revision = "0005"
 branch_labels = None
 depends_on = None
 
+PATRIMONIO_NUMERO_TOMBO_SEQUENCE = sa.Sequence(
+    "patrimonio_numero_tombo_seq",
+    schema=DATABASE_SCHEMA,
+)
 
 INDEX_COLUMNS = (
     "id",
@@ -39,9 +43,7 @@ INDEX_COLUMNS = (
 
 
 def upgrade() -> None:
-    op.execute(
-        f"CREATE SEQUENCE {DATABASE_SCHEMA}.patrimonio_numero_tombo_seq START WITH 1"
-    )
+    PATRIMONIO_NUMERO_TOMBO_SEQUENCE.create(op.get_bind())
     op.create_table(
         "patrimonios",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -49,9 +51,7 @@ def upgrade() -> None:
             "numero_tombo",
             sa.String(length=30),
             nullable=False,
-            server_default=sa.text(
-                f"'PAT-' || lpad(nextval('{DATABASE_SCHEMA}.patrimonio_numero_tombo_seq')::text, 6, '0')"
-            ),
+            server_default=PATRIMONIO_NUMERO_TOMBO_SEQUENCE.next_value(),
         ),
         sa.Column("codigo_protheus", sa.String(length=100), nullable=True),
         sa.Column("codigo_sap", sa.String(length=100), nullable=True),
@@ -147,4 +147,4 @@ def downgrade() -> None:
             schema=DATABASE_SCHEMA,
         )
     op.drop_table("patrimonios", schema=DATABASE_SCHEMA)
-    op.execute(f"DROP SEQUENCE {DATABASE_SCHEMA}.patrimonio_numero_tombo_seq")
+    PATRIMONIO_NUMERO_TOMBO_SEQUENCE.drop(op.get_bind())

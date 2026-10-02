@@ -7,17 +7,22 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Sequence,
     String,
     Text,
     UniqueConstraint,
     CheckConstraint,
-    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.config import DATABASE_SCHEMA
 from app.database import Base
+
+PATRIMONIO_NUMERO_TOMBO_SEQUENCE = Sequence(
+    "patrimonio_numero_tombo_seq",
+    schema=DATABASE_SCHEMA,
+)
 
 
 def utc_now() -> datetime:
@@ -49,9 +54,7 @@ class Patrimonio(Base):
     numero_tombo: Mapped[str] = mapped_column(
         String(30),
         index=True,
-        server_default=text(
-            f"'PAT-' || lpad(nextval('{DATABASE_SCHEMA}.patrimonio_numero_tombo_seq')::text, 6, '0')"
-        ),
+        server_default=PATRIMONIO_NUMERO_TOMBO_SEQUENCE.next_value(),
     )
     codigo_protheus: Mapped[str] = mapped_column(String(100), index=True)
     numero_item: Mapped[str] = mapped_column(String(100), index=True)

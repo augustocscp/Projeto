@@ -5,6 +5,10 @@ from app.config import DATABASE_SCHEMA
 from app.database import Base
 
 
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class HistoricoControlePatrimonial(Base):
     __tablename__ = "historico_controle_patrimonial"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -14,4 +18,4 @@ class HistoricoControlePatrimonial(Base):
     valor_novo: Mapped[str | None] = mapped_column(Text)
     motivo: Mapped[str | None] = mapped_column(Text)
     usuario_id: Mapped[int] = mapped_column(ForeignKey(f"{DATABASE_SCHEMA}.usuarios.id"))
-    data_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    data_hora: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
